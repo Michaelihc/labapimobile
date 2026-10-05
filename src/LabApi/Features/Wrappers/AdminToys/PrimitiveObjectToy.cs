@@ -1,4 +1,4 @@
-﻿using AdminToys;
+using AdminToys;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
@@ -9,6 +9,21 @@ namespace LabApi.Features.Wrappers;
 /// <summary>
 /// Wrapper for the <see cref="BasePrimitiveObjectToy"/> class.
 /// </summary>
+/// <remarks>
+/// Carl Mod has no primitive flags SyncVar. Its client adds a collider only when a component of the <c>Scale</c> SyncVar is
+/// positive, and static toys keep the transform from their spawn message. The wrapper therefore encodes
+/// <see cref="Flags"/> in the transform and the <c>Scale</c> SyncVar:
+/// <list type="bullet">
+/// <item>Static toys get a positive transform scale. The <c>Scale</c> SyncVar is the positive scale when
+/// <see cref="PrimitiveFlags.Collidable"/> is set and the negated scale when it is not.</item>
+/// <item>Dynamic toys render the SyncVar scale, so a collidable toy gets a positive scale and a non-collidable one an
+/// all-negative scale with a 180° rotation about local X that makes it look the same.</item>
+/// <item>Negative (mirrored) scale components are kept exactly: they become a rotation, plus a mirror on local X that
+/// none of the Unity primitives can show.</item>
+/// </list>
+/// <see cref="Rotation"/> and <see cref="Scale"/> report the requested values; the toy's <see cref="AdminToy.Transform"/>
+/// holds the encoded ones, so set the transform of such toys through the wrapper.
+/// </remarks>
 public class PrimitiveObjectToy : AdminToy
 {
     /// <summary>
@@ -38,13 +53,21 @@ public class PrimitiveObjectToy : AdminToy
     /// </summary>
     /// <param name="position">The initial local position.</param>
     /// <param name="rotation">The initial local rotation.</param>
-    /// <param name="scale">The initial local scale.</param>
+    /// <param name="scale">The initial local scale. Negative components are kept (see <see cref="Scale"/>).</param>
     /// <param name="parent">The parent transform.</param>
     /// <param name="networkSpawn">Whether to spawn the toy on the client.</param>
     /// <returns>The created primitive object toy.</returns>
+    /// <remarks>
+    /// The toy starts static and with <see cref="PrimitiveFlags.Visible"/> | <see cref="PrimitiveFlags.Collidable"/>.
+    /// Set <see cref="Flags"/> and <see cref="AdminToy.IsStatic"/> before spawning (<paramref name="networkSpawn"/> =
+    /// <see langword="false"/>) to avoid a respawn.
+    /// </remarks>
     public static PrimitiveObjectToy Create(Vector3 position, Quaternion rotation, Vector3 scale, Transform? parent = null, bool networkSpawn = true)
     {
         PrimitiveObjectToy toy = Get(Create<BasePrimitiveObjectToy>(position, rotation, Abs(scale), parent));
+        toy._signs = Signs(scale);
+        toy.ApplyEncoding(rotation);
+        toy.WriteTransformSyncVars();
 
         if (networkSpawn)
         {
@@ -92,11 +115,13 @@ public class PrimitiveObjectToy : AdminToy
         Base = basePrimitiveObjectToy;
         _color = basePrimitiveObjectToy.MaterialColor;
 
-        // The Carl Mod client adds a collider only when a Scale component is positive (see Flags).
-        Vector3 scale = basePrimitiveObjectToy.transform.localScale;
-        _flags = scale.x > 0f || scale.y > 0f || scale.z > 0f || scale == Vector3.zero
+        // A toy created elsewhere is taken as it is: the client adds a collider when a Scale component is positive.
+        Vector3 syncScale = basePrimitiveObjectToy.Scale;
+        _flags = syncScale.x > 0f || syncScale.y > 0f || syncScale.z > 0f || syncScale == Vector3.zero
             ? PrimitiveFlags.Collidable | PrimitiveFlags.Visible
             : PrimitiveFlags.Visible;
+        _signs = Signs(basePrimitiveObjectToy.transform.localScale);
+        _compensation = Quaternion.identity;
 
         if (CanCache)
         {
@@ -136,13 +161,35 @@ public class PrimitiveObjectToy : AdminToy
 
     /// <inheritdoc />
     /// <remarks>
-    /// The sign of each component is reserved for <see cref="Flags"/> collision emulation, so negative (mirrored) scales are not
-    /// supported: the getter returns absolute values and the setter applies the sign required by <see cref="Flags"/>.
+    /// Returns the requested rotation; the transform may carry an extra 180° turn that encodes <see cref="Flags"/> or a
+    /// negative <see cref="Scale"/>.
+    /// </remarks>
+    public override Quaternion Rotation
+    {
+        get => Transform.localRotation * Quaternion.Inverse(_compensation);
+        set
+        {
+            Transform.localRotation = value * _compensation;
+            OnTransformChanged();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Negative components are supported. The transform holds the encoded scale (see the class remarks), so read the
+    /// scale through this property.
     /// </remarks>
     public override Vector3 Scale
     {
-        get => Abs(Transform.localScale);
-        set => base.Scale = Signed(value);
+        get => Vector3.Scale(Abs(Transform.localScale), _signs);
+        set
+        {
+            Quaternion rotation = Rotation;
+            _signs = Signs(value);
+            Transform.localScale = Abs(value);
+            ApplyEncoding(rotation);
+            OnTransformChanged();
+        }
     }
 
     /// <summary>
@@ -151,11 +198,10 @@ public class PrimitiveObjectToy : AdminToy
     /// <remarks>
     /// Setting flags to <see cref="PrimitiveFlags.None"/> is similar to having an empty object which is useful as a root object other toys parent to.
     /// <para>
-    /// Carl Mod has no primitive flags SyncVar; they are emulated with what its client understands.
-    /// <see cref="PrimitiveFlags.Collidable"/> keeps the scale positive (the client adds a collider), its absence makes every scale
-    /// component negative (rendered, no collider). Without <see cref="PrimitiveFlags.Visible"/> the color is sent with zero alpha.
-    /// The client only creates the collider when it builds the primitive, so changing <see cref="PrimitiveFlags.Collidable"/>
-    /// on a spawned toy respawns it.
+    /// Carl Mod has no primitive flags SyncVar; they are emulated with what its client understands (see the class
+    /// remarks). Without <see cref="PrimitiveFlags.Visible"/> the color is sent with zero alpha, which still renders as a
+    /// transparent primitive. The client creates the collider only when it builds the primitive, so changing
+    /// <see cref="PrimitiveFlags.Collidable"/> on a spawned toy respawns it.
     /// </para>
     /// </remarks>
     public PrimitiveFlags Flags
@@ -169,6 +215,7 @@ public class PrimitiveObjectToy : AdminToy
                 return;
             }
 
+            Quaternion rotation = Rotation;
             _flags = value;
 
             if ((changed & PrimitiveFlags.Visible) != 0)
@@ -178,10 +225,15 @@ public class PrimitiveObjectToy : AdminToy
 
             if ((changed & PrimitiveFlags.Collidable) != 0)
             {
-                base.Scale = Signed(Transform.localScale);
+                ApplyEncoding(rotation);
+                WriteTransformSyncVars();
 
-                // Rebuild the server-side primitive so server raycasts match, then let clients rebuild theirs.
-                Base.SetPrimitive(Base.PrimitiveType, Base.PrimitiveType);
+                // Rebuild the server-side primitive so server raycasts match (Start builds it if it has not run yet).
+                if (Base._spawnedPrimitve != null)
+                {
+                    Base.SetPrimitive(Base.PrimitiveType, Base.PrimitiveType);
+                }
+
                 Respawn();
             }
         }
@@ -191,6 +243,28 @@ public class PrimitiveObjectToy : AdminToy
     public override string ToString()
     {
         return $"[PrimitiveObjectToy: Type={Type}, Color={Color}, Flags={Flags}]";
+    }
+
+    /// <inheritdoc />
+    private protected override void WriteTransformSyncVars()
+    {
+        Transform transform = Transform;
+        transform.GetPositionAndRotation(out Vector3 position, out Quaternion rotation);
+        Base.NetworkPosition = position;
+        Base.NetworkRotation = new LowPrecisionQuaternion(rotation);
+
+        // Static toys render the spawn message transform, so their Scale SyncVar only decides the collider.
+        Vector3 scale = transform.localScale;
+        Base.NetworkScale = Base.IsStatic && (_flags & PrimitiveFlags.Collidable) == 0 ? -Abs(scale) : scale;
+    }
+
+    /// <inheritdoc />
+    private protected override void OnStaticChanged()
+    {
+        // _compensation still holds the encoding for the previous static state.
+        Quaternion rotation = Transform.localRotation * Quaternion.Inverse(_compensation);
+        ApplyEncoding(rotation);
+        WriteTransformSyncVars();
     }
 
     /// <summary>
@@ -204,14 +278,56 @@ public class PrimitiveObjectToy : AdminToy
     private PrimitiveFlags _flags;
 
     /// <summary>
+    /// The signs (+1 or -1) of the requested <see cref="Scale"/> components.
+    /// </summary>
+    private Vector3 _signs = Vector3.one;
+
+    /// <summary>
+    /// The rotation appended to the requested rotation in the transform.
+    /// </summary>
+    private Quaternion _compensation = Quaternion.identity;
+
+    /// <summary>
     /// Returns the component-wise absolute value of a vector.
     /// </summary>
     private static Vector3 Abs(Vector3 value) => new(Mathf.Abs(value.x), Mathf.Abs(value.y), Mathf.Abs(value.z));
 
     /// <summary>
-    /// Applies the scale sign that encodes <see cref="PrimitiveFlags.Collidable"/>.
+    /// Returns +1 or -1 per component (zero counts as positive).
     /// </summary>
-    private Vector3 Signed(Vector3 value) => (_flags & PrimitiveFlags.Collidable) != 0 ? Abs(value) : -Abs(value);
+    private static Vector3 Signs(Vector3 value) => new(value.x < 0f ? -1f : 1f, value.y < 0f ? -1f : 1f, value.z < 0f ? -1f : 1f);
+
+    /// <summary>
+    /// Writes the encoded transform rotation and scale for the requested rotation, <see cref="Scale"/> signs,
+    /// <see cref="Flags"/> and static state.
+    /// </summary>
+    /// <param name="rotation">The requested (logical) local rotation.</param>
+    private void ApplyEncoding(Quaternion rotation)
+    {
+        // Dynamic toys render the Scale SyncVar, and the client only skips the collider when no component is positive.
+        bool negative = !Base.IsStatic && (_flags & PrimitiveFlags.Collidable) == 0;
+        float target = negative ? -1f : 1f;
+
+        // The requested transform is R * diag(signs) * |s|; the encoded one is R * Q * (target * |s|).
+        // diag(signs * target) with an even number of negative entries is a 180° rotation; with an odd number it is that
+        // rotation times a mirror on local X, which every Unity primitive is symmetric under (the Plane and Quad normals
+        // lie in the YZ plane, and Unity flips the winding of mirrored renderers).
+        float sx = _signs.x * target;
+        float sy = _signs.y * target;
+        float sz = _signs.z * target;
+        if (sx * sy * sz < 0f)
+        {
+            sx = -sx;
+        }
+
+        _compensation = sx > 0f
+            ? (sy > 0f ? Quaternion.identity : RotationX180)
+            : (sy > 0f ? RotationY180 : RotationZ180);
+
+        Vector3 magnitude = Abs(Transform.localScale);
+        Transform.localRotation = rotation * _compensation;
+        Transform.localScale = negative ? -magnitude : magnitude;
+    }
 
     /// <summary>
     /// Sends <see cref="Color"/>, hidden through zero alpha when <see cref="PrimitiveFlags.Visible"/> is not set.
@@ -235,4 +351,10 @@ public class PrimitiveObjectToy : AdminToy
         base.OnRemove();
         Dictionary.Remove(Base);
     }
+
+    private static readonly Quaternion RotationX180 = new(1f, 0f, 0f, 0f);
+
+    private static readonly Quaternion RotationY180 = new(0f, 1f, 0f, 0f);
+
+    private static readonly Quaternion RotationZ180 = new(0f, 0f, 1f, 0f);
 }

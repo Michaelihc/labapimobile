@@ -68,7 +68,8 @@ Only `PrimitiveObjectToy`, `LightSourceToy` and `ShootingTarget` exist in Carl M
 | `Parent` | approximated | Server-side only: clients have no toy parenting and receive the world position/rotation and local scale while the toy is dynamic. A parented static toy spawns at its local coordinates. |
 | `IsStatic`, `MovementSmoothing`, `SyncInterval`, `Spawn`, `Destroy` | supported | |
 | `PrimitiveObjectToy.Type`, `Color` | supported | |
-| `PrimitiveObjectToy.Flags` | approximated | No flags SyncVar. `Collidable` = positive scale (client adds a mesh collider), no `Collidable` = all scale components negative (rendered, no collider), no `Visible` = color sent with zero alpha. Changing `Collidable` on a spawned toy respawns it. Negative (mirrored) scales are not available; `Scale` returns absolute values. |
+| `PrimitiveObjectToy.Flags` | approximated | No flags SyncVar; the client adds a mesh collider only when a component of the `Scale` SyncVar is positive, and static toys keep the transform of their spawn message. Static toys: positive transform scale, `Scale` SyncVar positive with `Collidable` and negated without it. Dynamic toys render the SyncVar: positive scale with `Collidable`, otherwise an all-negative scale plus a 180° turn about local X, which looks the same for every Unity primitive (including the one-sided Plane and Quad). Without `Visible` the color is sent with zero alpha (the primitive still renders, transparent). Changing `Collidable` on a spawned toy respawns it; switching `IsStatic` re-encodes the transform. |
+| `PrimitiveObjectToy.Rotation`, `Scale` | adapted | Return the requested values. Negative (mirrored) scale components are kept exactly: they become a 180° rotation, plus a local X mirror that no primitive shows. The toy's `Transform` holds the encoded rotation and scale, so move such toys through the wrapper. |
 | `LightSourceToy.Intensity`, `Range`, `Color` | supported | |
 | `LightSourceToy.ShadowType` | approximated | Only on/off is synced; any value other than `None` renders as `Soft`. |
 | `LightSourceToy.ShadowStrength`, `Type`, `Shape`, `SpotAngle`, `InnerSpotAngle` | absent | Not synced by Carl Mod's light toy; the light type and shape are fixed by its prefab. |
@@ -145,7 +146,7 @@ listens.
 | `PlayerEvents.SpawningRagdoll` / `SpawnedRagdoll` | supported | `RagdollManager.ServerSpawnRagdoll`. As in official, a changed `DamageHandler` is not fed back. |
 | `PlayerEvents.PlacingBlood` / `PlacedBlood` | approximated | `StandardHitregBase.PlaceBloodDecal` (fork firearms send blood as a `GunHitMessage`, human targets only). Changed positions re-aim the decal from `RaycastStart` towards `HitPosition`. |
 | `PlayerEvents.ReceivedAchievement` | approximated | `AchievementHandlerBase.ServerAchieve` for remote clients. The fork has no `AllowAchievements` switch. |
-| `PlayerEvents.RoomChanged` / `ZoneChanged` | approximated | The fork has no `CurrentRoomPlayerCache`; LabAPI revalidates every player once per frame while either event has subscribers (camera position for camera roles, room grid lookup, dead players have no room). When the first subscriber appears, current rooms are recorded without raising events. `ZoneChanged` needs a room on both sides, as in official. |
+| `PlayerEvents.RoomChanged` / `ZoneChanged` | approximated | The fork has no `CurrentRoomPlayerCache`; LabAPI revalidates every player once per frame while either event has subscribers (camera position for camera roles; room grid cell, then a raycast up and down like official `RoomUtils.TryGetRoom`; dead players have no room). When the first subscriber appears, current rooms are recorded without raising events. `ZoneChanged` needs a room on both sides, as in official. |
 | `PlayerEvents.ChangedSpectator` | approximated | Server handler of `SpectatedNetIdSyncMessage`. The fork accepts every target (no spectatable check), so the event follows every change. |
 | `PlayerEvents.ValidatedVisibility` | supported | `FpcServerPositionDistributor.WriteAll`, for every non-host FPC target. Making a target invisible sends it as hidden, as the fork does for its own visibility rules. |
 | `PlayerEvents.EnteringPocketDimension` / `EnteredPocketDimension` | approximated | Carl Mod has no `PocketCorroding`; `Corroding.Enabled` captures the position and moves the player into the pocket dimension. Cancelling leaves the effect active without teleporting, as in official. |
@@ -169,7 +170,7 @@ listens.
 | `ArtificialHealth`, `MaxArtificialHealth` | supported | Clears the AHP processes / sets the AHP maximum directly. |
 | `Position`, `Move` | supported | Server position override. |
 | `Rotation`, `LookRotation`, `Rotate` | approximated | The fork's override message carries only a horizontal delta: yaw is applied, pitch is ignored. |
-| `CachedRoom` | approximated | Room grid cell at the player's position, resolved on each call. |
+| `CachedRoom` | approximated | Resolved on each call with the same lookup as `RoomChanged` (grid cell, then a raycast up and down). |
 | `GetRoleVisibilityFor` | approximated | Applies `IObfuscatedRole` only; the fork has no distance or visibility based role masking. |
 | `AddItem(ItemType)`, `GiveCandy(CandyKindID)`, `GiveRandomCandy()` | adapted | No `ItemAddReason` in the fork, so the reason parameter is absent. Candy follows the fork's RA candy command (adds a bag when missing). |
 | `DropAmmo` | supported | Replays the fork's ammo drop and returns the spawned pickups (the fork method returns only a bool). |

@@ -1009,9 +1009,10 @@ public class Player
     /// May be <see langword="null"/> if the player is in the void.
     /// </summary>
     /// <remarks>
-    /// The Carl Mod server has no per-player room cache, so this resolves the room grid cell at the player's position.
+    /// The Carl Mod server has no per-player room cache, so this resolves the room at the player's position (grid cell, then a
+    /// raycast up and down), the same lookup <see cref="LabApi.Events.Handlers.PlayerEvents.RoomChanged"/> uses.
     /// </remarks>
-    public Room? CachedRoom => Room.Get(RoomIdUtils.RoomAtPosition(ReferenceHub.transform.position));
+    public Room? CachedRoom => Room.Get(RoomIdUtils.RoomAtPositionRaycasts(ReferenceHub.transform.position, false));
 
     /// <summary>
     /// Gets the <see cref="FacilityZone"/> for the player's current room. Returns <see cref="FacilityZone.None"/> if the room is null.

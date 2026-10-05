@@ -346,13 +346,15 @@ public class AdminToy
         set
         {
             _autoStatic = false;
-            if (!value && Base.IsStatic)
+            if (Base.IsStatic == value)
             {
-                // The Carl Mod server only refreshes the transform SyncVars of dynamic toys; send the current state with the switch.
-                SyncTransform(Base);
+                return;
             }
 
             Base.NetworkIsStatic = value;
+
+            // The Carl Mod server only refreshes the transform SyncVars of dynamic toys; send the current state with the switch.
+            OnStaticChanged();
         }
     }
 
@@ -385,7 +387,7 @@ public class AdminToy
             return;
         }
 
-        SyncTransform(Base);
+        WriteTransformSyncVars();
         NetworkServer.Spawn(GameObject);
 
         // The spawn message already carried the full state; do not send the pre-spawn SyncVar writes again as a delta.
@@ -455,10 +457,25 @@ public class AdminToy
         {
             _autoStatic = false;
             Base.NetworkIsStatic = false;
+            OnStaticChanged();
+            return;
         }
 
-        SyncTransform(Base);
+        WriteTransformSyncVars();
     }
+
+    /// <summary>
+    /// Writes the toy's transform SyncVars from its current transform.
+    /// </summary>
+    /// <remarks>
+    /// Overridden by wrappers whose SyncVars encode more than the plain transform (<see cref="PrimitiveObjectToy.Flags"/>).
+    /// </remarks>
+    private protected virtual void WriteTransformSyncVars() => SyncTransform(Base);
+
+    /// <summary>
+    /// Called after <see cref="AdminToyBase.IsStatic"/> changed through the wrapper.
+    /// </summary>
+    private protected virtual void OnStaticChanged() => WriteTransformSyncVars();
 
     /// <summary>
     /// Gets or sets the toy most recently instantiated by <see cref="Create{T}"/>, so its wrapper starts in automatic static mode.

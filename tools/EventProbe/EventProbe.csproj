@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Developer tool: logs every LabAPI event to the server log. Not shipped with LabApi. See README.md. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>EventProbe</AssemblyName>
+    <RootNamespace>EventProbe</RootNamespace>
+    <Version>1.0.0</Version>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LabApi\LabApi.csproj" Private="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp" HintPath="$(CarlManaged)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="CommandSystem.Core" HintPath="$(CarlManaged)\CommandSystem.Core.dll" Private="false" />
+    <Reference Include="DigitalDust" HintPath="$(CarlManaged)\DigitalDust.dll" Private="false" />
+    <Reference Include="Mirror" HintPath="$(CarlManaged)\Mirror.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(CarlManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="mscorlib" HintPath="$(CarlManaged)\mscorlib.dll" Private="false" />
+    <Reference Include="System" HintPath="$(CarlManaged)\System.dll" Private="false" />
+    <Reference Include="System.Core" HintPath="$(CarlManaged)\System.Core.dll" Private="false" />
+    <Reference Include="netstandard" HintPath="$(CarlManaged)\netstandard.dll" Private="false" />
+  </ItemGroup>
+</Project>

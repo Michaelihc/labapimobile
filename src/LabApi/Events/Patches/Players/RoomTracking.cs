@@ -16,6 +16,7 @@ namespace LabApi.Events.Patches.Players;
 /// <remarks>
 /// Official SL raises both from the per-player <c>CurrentRoomPlayerCache</c> component, which Carl Mod lacks.
 /// This tracker revalidates each player's room once per frame while either event has subscribers and does nothing otherwise.
+/// The lookup is the grid cell, then a raycast up and down when the cell has no room (raycasts only outside room cells).
 /// When the first subscriber appears, the current rooms are recorded without raising events.
 /// </remarks>
 // Official: MapGeneration/CurrentRoomPlayerCache.cs ValidateCache
@@ -69,7 +70,9 @@ internal static class PlayerRoomTracker
             RoomIdentifier? room = null;
             if (hub.IsAlive())
             {
-                room = RoomIdUtils.RoomAtPosition(hub.roleManager.CurrentRole is ICameraController camera ? camera.CameraPosition : hub.transform.position);
+                // Same lookup as official RoomUtils.TryGetRoom: grid cell first, then a raycast up and down. Rooms larger
+                // than their grid cells (Hcz106, surface parts) are otherwise reported as null while walking through them.
+                room = RoomIdUtils.RoomAtPositionRaycasts(hub.roleManager.CurrentRole is ICameraController camera ? camera.CameraPosition : hub.transform.position, false);
             }
 
             RoomIdentifier? previous = player.TrackedRoom;
