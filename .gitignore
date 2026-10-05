@@ -1,3 +1,6 @@
 .refereces/
+.runtime/
 **/bin/
 **/obj/
+*.user
+.vs/
