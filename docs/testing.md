@@ -38,7 +38,10 @@ SIGILL there.
 
 - Copies `.runtime\server-original\` to `.runtime\server-emu\` when missing and writes
   `hoster_policy.txt` (`gamedir_for_configs: true`). Configs, bans and logs then live in
-  `.runtime\server-emu\AppData\`; the real `%APPDATA%\SCP Secret Laboratory` is not touched.
+  `.runtime\server-emu\AppData\`. The one exception is the player-prefs file
+  `%APPDATA%\SCP Secret Laboratory\registry.txt`: the server binds its path before it reads the
+  policy, so round restarts update the server keys `LastRoundrestartTime` and `SrvSp_*` in the real
+  file (`-appdatapath` does not change this). Nothing else is written there.
 - Sets `afk_time: 0` in `AppData\config\7791\config_gameplay.txt`. Without it the server kicks a
   lone client that stays in its spawn for 90 s. On the very first start the server boots once to
   generate the config, then restarts with the override. Override other keys with

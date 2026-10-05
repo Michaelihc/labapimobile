@@ -5,7 +5,10 @@
 .DESCRIPTION
   - Creates the server directory from -SourceDir when it does not exist yet.
   - Writes hoster_policy.txt (gamedir_for_configs: true) when missing, so configs and logs go to
-    <ServerDir>\AppData instead of the real %APPDATA%\SCP Secret Laboratory.
+    <ServerDir>\AppData instead of the real %APPDATA%\SCP Secret Laboratory. One file still goes to
+    the real folder: the server's player-prefs file registry.txt (it stores the server's
+    LastRoundrestartTime and SrvSp_* values). The server binds that path before it reads the
+    policy, and neither hoster_policy.txt nor -appdatapath changes it.
   - Applies -ConfigOverrides to AppData\config\<port>\config_gameplay.txt. The default disables the
     AFK kick (afk_time: 0): a lone test client standing in its spawn is otherwise kicked after 90 s.
     On the very first start the config file does not exist yet, so the server is booted once to
