@@ -19,7 +19,10 @@ function Get-EmulatorSerial([int]$ConsolePort = 5554) { return "emulator-$Consol
 # Runs adb against the test emulator and returns the output lines. Native stderr is merged so callers
 # see adb errors. Does not throw on non-zero exit; check $LASTEXITCODE when it matters.
 function Invoke-Adb {
-    param([string]$Serial, [Parameter(ValueFromRemainingArguments)][string[]]$AdbArgs)
+    # Simple function (no param block) so adb flags such as -p reach adb instead of PowerShell binding.
+    # Usage: Invoke-Adb <serial> <adb args...>
+    $Serial = $args[0]
+    $AdbArgs = @(if ($args.Count -gt 1) { $args[1..($args.Count - 1)] })
     $adb = Get-Adb
     $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     try { & $adb -s $Serial @AdbArgs 2>&1 } finally { $ErrorActionPreference = $prev }

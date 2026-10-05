@@ -4,22 +4,22 @@
 
 .DESCRIPTION
   - Downloads the official command-line tools zip from dl.google.com into <Sdk>\cmdline-tools\latest.
-  - Installs platform-tools, emulator and the Google APIs x86_64 system image (API 34). That image
+  - Installs platform-tools, emulator and the Google APIs x86_64 system image (API 36 / Android 16). That image
     runs arm64-v8a apps through its built-in ARM translation.
   - Creates the AVD (Pixel 6 profile, landscape, 6 GB RAM, 8 cores, host GPU, 16 GB data partition).
   The Windows Hypervisor Platform (WHPX) must already be enabled; this script does not change
   Windows features. "emulator -accel-check" is run at the end.
 
 .PARAMETER Sdk      SDK root (default %LOCALAPPDATA%\Android\Sdk).
-.PARAMETER AvdName  AVD name (default carlmod_api34).
+.PARAMETER AvdName  AVD name (default carlmod_api36).
 .PARAMETER Recreate Delete and recreate the AVD.
 #>
 [CmdletBinding()]
 param(
     [string]$Sdk = (Join-Path $env:LOCALAPPDATA 'Android\Sdk'),
-    [string]$AvdName = 'carlmod_api34',
+    [string]$AvdName = 'carlmod_api36',
     [string]$CmdlineToolsUrl = 'https://dl.google.com/android/repository/commandlinetools-win-16111833_latest.zip',
-    [string]$SystemImage = 'system-images/android-34/google_apis/x86_64',
+    [string]$SystemImage = 'system-images/android-36/google_apis/x86_64',
     [switch]$Recreate
 )
 

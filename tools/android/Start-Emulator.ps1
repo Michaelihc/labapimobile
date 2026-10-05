@@ -6,14 +6,14 @@
   Cold boots by default (no snapshot) so every run starts from the same state. The emulator log goes
   to <repo>\.runtime\logs\emulator.log. Stop it with Stop-Emulator.ps1.
 
-.PARAMETER AvdName      AVD to boot (default carlmod_api34).
+.PARAMETER AvdName      AVD to boot (default carlmod_api36).
 .PARAMETER ConsolePort  Emulator console port; adb serial is emulator-<port> (default 5554).
 .PARAMETER NoWindow     Run without a visible window (rendering still uses the host GPU).
 .PARAMETER Snapshot     Allow snapshot load/save instead of a cold boot.
 #>
 [CmdletBinding()]
 param(
-    [string]$AvdName = 'carlmod_api34',
+    [string]$AvdName = 'carlmod_api36',
     [int]$ConsolePort = 5554,
     [switch]$NoWindow,
     [switch]$Snapshot,
