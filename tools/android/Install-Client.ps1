@@ -10,19 +10,21 @@
 .PARAMETER Apk          APK to install (default <repo>\.runtime\apk\carlmod-0.0.4.apk).
 .PARAMETER Reinstall    Uninstall the package first (clears app data).
 .PARAMETER ConsolePort  Emulator console port (default 5554).
+.PARAMETER Serial       adb serial of the emulator, for example emulator-5556 (overrides -ConsolePort).
 #>
 [CmdletBinding()]
 param(
     [string]$Apk,
     [switch]$Reinstall,
     [int]$ConsolePort = 5554,
+    [string]$Serial,
     [string]$Package = 'com.carlmod.game'
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_common.ps1')
 
-$serial = Get-EmulatorSerial $ConsolePort
+$serial = Resolve-EmulatorSerial $Serial $ConsolePort
 Assert-EmulatorOnline $serial
 
 if (-not $Apk) {

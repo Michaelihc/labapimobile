@@ -18,17 +18,41 @@ internal sealed class FacilityDestroyNotifier : MonoBehaviour
 
     private Action<Object>? _callback;
 
+    private Action<Object>? _started;
+
     /// <summary>
     /// Attaches a notifier that calls <paramref name="callback"/> with <paramref name="key"/> when <paramref name="gameObject"/> is destroyed.
     /// </summary>
     /// <param name="gameObject">The object to observe.</param>
     /// <param name="key">The base game component passed back to the callback.</param>
     /// <param name="callback">A static callback that removes the wrapper.</param>
-    internal static void Attach(GameObject gameObject, Object key, Action<Object> callback)
+    /// <param name="started">
+    /// An optional static callback run from this component's <c>Start</c>, once the object is active and enabled. Used to
+    /// register wrappers of components that have only an <c>Awake</c> (where <c>isActiveAndEnabled</c> is still false).
+    /// </param>
+    internal static void Attach(GameObject gameObject, Object key, Action<Object> callback, Action<Object>? started = null)
     {
         FacilityDestroyNotifier notifier = gameObject.AddComponent<FacilityDestroyNotifier>();
         notifier._key = key;
         notifier._callback = callback;
+        notifier._started = started;
+    }
+
+    private void Start()
+    {
+        if (_started == null || _key == null)
+        {
+            return;
+        }
+
+        try
+        {
+            _started(_key);
+        }
+        catch (Exception e)
+        {
+            Logger.Error($"[FacilityDestroyNotifier] Failed to add the wrapper of {_key.GetType().Name}: {e}");
+        }
     }
 
     private void OnDestroy()

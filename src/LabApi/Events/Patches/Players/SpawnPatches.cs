@@ -12,8 +12,8 @@ using UnityEngine;
 namespace LabApi.Events.Patches.Players;
 
 // Official: PlayerRoles/FirstPersonControl/Spawnpoints/RoleSpawnpointManager.cs SetPosition
-// The Carl Mod server positions players from an anonymous PlayerRoleManager.OnRoleChanged handler in RoleSpawnpointManager.Init,
-// so the first role a player ever receives (no previous role) does not raise these events, as it is not repositioned either.
+// The Carl Mod server positions players from an anonymous PlayerRoleManager.OnRoleChanged handler in RoleSpawnpointManager.Init.
+// OnRoleChanged runs for every role change after the None role a player starts with, including the round-start assignment.
 [HarmonyPatch]
 internal static class PlayerSpawnPatch
 {

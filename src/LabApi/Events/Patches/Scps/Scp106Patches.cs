@@ -147,16 +147,33 @@ internal static class Scp106UsingHunterAtlasPatch
 }
 
 // Official: PlayerRoles/PlayableScps/Scp106/Scp106HuntersAtlasAbility.cs UpdateServerside
+// Also raises ChangingSubmersionStatus for the emerge that ends a Hunter's Atlas use. The fork teleports and emerges in the same
+// step, so a cancelled emerge keeps SCP-106 submerged at its origin and is raised again next frame; the teleport happens once
+// the emerge is allowed.
 [HarmonyPatch(typeof(Scp106HuntersAtlasAbility), nameof(Scp106HuntersAtlasAbility.UpdateServerside))]
 internal static class Scp106UsedHunterAtlasPatch
 {
-    private static void Prefix(Scp106HuntersAtlasAbility __instance, out Vector3? __state)
+    private static bool Prefix(Scp106HuntersAtlasAbility __instance, out Vector3? __state)
     {
         __state = null;
-        if (Scp106Events.HasUsedHunterAtlas && __instance._submerged && __instance.ScpRole.Sinkhole.NormalizedState >= 1f)
+        if ((!Scp106Events.HasUsedHunterAtlas && !Scp106Events.HasChangingSubmersionStatus)
+            || !__instance._submerged || __instance.ScpRole.Sinkhole.NormalizedState < 1f)
+        {
+            return true;
+        }
+
+        if (!Scp106SubmersionEvents.TryChange(__instance.ScpRole.Sinkhole, __instance, false))
+        {
+            return false;
+        }
+
+        Scp106SubmersionEvents.Approved = __instance;
+        if (Scp106Events.HasUsedHunterAtlas)
         {
             __state = __instance.ScpRole.FpcModule.Position;
         }
+
+        return true;
     }
 
     private static void Postfix(Scp106HuntersAtlasAbility __instance, Vector3? __state)
@@ -165,6 +182,26 @@ internal static class Scp106UsedHunterAtlasPatch
         {
             Scp106Events.OnUsedHunterAtlas(new Scp106UsedHunterAtlasEventArgs(__instance.Owner, __state.Value));
         }
+    }
+
+    private static void Finalizer() => Scp106SubmersionEvents.Approved = null;
+}
+
+// Official: PlayerRoles/PlayableScps/Scp106/Scp106SinkholeController.cs ServerSetSubmerged
+// Hunter's Atlas submerging (ServerProcessCmd) and emerging (UpdateServerside). Cancelling refuses the ability's state change,
+// which clients follow, so the sinkhole stays in step with them.
+[HarmonyPatch(typeof(Scp106HuntersAtlasAbility), nameof(Scp106HuntersAtlasAbility.SetSubmerged))]
+internal static class Scp106AtlasSubmersionPatch
+{
+    private static bool Prefix(Scp106HuntersAtlasAbility __instance, bool val)
+    {
+        if (!Scp106Events.HasChangingSubmersionStatus || !NetworkServer.active || __instance._submerged == val
+            || ReferenceEquals(Scp106SubmersionEvents.Approved, __instance))
+        {
+            return true;
+        }
+
+        return Scp106SubmersionEvents.TryChange(__instance.ScpRole.Sinkhole, __instance, val);
     }
 }
 
@@ -176,8 +213,8 @@ internal static class Scp106ChangingStalkModePatch
     private static bool Prefix(Scp106StalkAbility __instance, bool value, out bool __state)
     {
         __state = false;
-        if ((!Scp106Events.HasChangingStalkMode && !Scp106Events.HasChangedStalkMode) || !NetworkServer.active
-            || Scp106StalkResetPatch.Resetting || __instance._isActive == value)
+        if ((!Scp106Events.HasChangingStalkMode && !Scp106Events.HasChangedStalkMode && !Scp106Events.HasChangingSubmersionStatus)
+            || !NetworkServer.active || Scp106StalkResetPatch.Resetting || __instance._isActive == value)
         {
             return true;
         }
@@ -190,6 +227,12 @@ internal static class Scp106ChangingStalkModePatch
             {
                 return false;
             }
+        }
+
+        // In the fork the stalk is the submersion: a refused submersion change refuses the stalk change.
+        if (!Scp106SubmersionEvents.TryChange(__instance._sinkhole, __instance, value))
+        {
+            return false;
         }
 
         __state = true;
@@ -218,39 +261,75 @@ internal static class Scp106StalkResetPatch
 }
 
 // Official: PlayerRoles/PlayableScps/Scp106/Scp106SinkholeController.cs ServerSetSubmerged
-// The fork derives the sinkhole state from the vigor abilities every frame through the State setter.
+// The fork derives the sinkhole state from the vigor abilities every frame (on the server and on every client) through this
+// setter, so it only reports the change; ChangingSubmersionStatus is raised where an ability decides to submerge or emerge.
 [HarmonyPatch(typeof(Scp106SinkholeController), nameof(Scp106SinkholeController.State), MethodType.Setter)]
-internal static class Scp106ChangingSubmersionStatusPatch
+internal static class Scp106ChangedSubmersionStatusPatch
 {
-    private static bool Prefix(Scp106SinkholeController __instance, bool value, out ReferenceHub? __state)
+    private static void Prefix(Scp106SinkholeController __instance, bool value, out ReferenceHub? __state)
     {
         __state = null;
-        if ((!Scp106Events.HasChangingSubmersionStatus && !Scp106Events.HasChangedSubmersionStatus) || __instance._state == value
-            || !NetworkServer.active || !__instance.Role.TryGetOwner(out ReferenceHub hub))
+        if (Scp106Events.HasChangedSubmersionStatus && __instance._state != value && NetworkServer.active
+            && __instance.Role.TryGetOwner(out ReferenceHub hub))
         {
-            return true;
+            __state = hub;
         }
-
-        if (Scp106Events.HasChangingSubmersionStatus)
-        {
-            Scp106ChangingSubmersionStatusEventArgs e = new(hub, value);
-            Scp106Events.OnChangingSubmersionStatus(e);
-            if (!e.IsAllowed)
-            {
-                return false;
-            }
-        }
-
-        __state = hub;
-        return true;
     }
 
     private static void Postfix(bool value, ReferenceHub? __state)
     {
-        if (__state != null && Scp106Events.HasChangedSubmersionStatus)
+        if (__state != null)
         {
             Scp106Events.OnChangedSubmersionStatus(new Scp106ChangedSubmersionStatusEventArgs(__state, value));
         }
+    }
+}
+
+/// <summary>
+/// Raises <see cref="Scp106Events.ChangingSubmersionStatus"/> where a vigor ability (stalk, Hunter's Atlas) changes its submerged
+/// state on the server, when that change flips the sinkhole state the fork derives from all vigor abilities.
+/// </summary>
+internal static class Scp106SubmersionEvents
+{
+    /// <summary>
+    /// The Hunter's Atlas whose emerge was already approved by <see cref="Scp106UsedHunterAtlasPatch"/> in this call.
+    /// </summary>
+    internal static Scp106HuntersAtlasAbility? Approved;
+
+    /// <summary>
+    /// Raises the event when <paramref name="ability"/> changing to <paramref name="submerged"/> flips the sinkhole state.
+    /// </summary>
+    /// <param name="sinkhole">The owner's sinkhole controller.</param>
+    /// <param name="ability">The vigor ability that changes its submerged state.</param>
+    /// <param name="submerged">The ability's new submerged state.</param>
+    /// <returns>Whether the change may proceed.</returns>
+    internal static bool TryChange(Scp106SinkholeController sinkhole, Scp106VigorAbilityBase ability, bool submerged)
+    {
+        if (!Scp106Events.HasChangingSubmersionStatus || !NetworkServer.active || !WouldFlip(sinkhole, ability, submerged)
+            || !sinkhole.Role.TryGetOwner(out ReferenceHub hub))
+        {
+            return true;
+        }
+
+        Scp106ChangingSubmersionStatusEventArgs e = new(hub, submerged);
+        Scp106Events.OnChangingSubmersionStatus(e);
+        return e.IsAllowed;
+    }
+
+    private static bool WouldFlip(Scp106SinkholeController sinkhole, Scp106VigorAbilityBase ability, bool submerged)
+    {
+        bool current = false;
+        bool next = false;
+        Scp106VigorAbilityBase[] abilities = sinkhole._vigorAbilities;
+        for (int i = 0; i < sinkhole._vigorAbilitiesCount; i++)
+        {
+            Scp106VigorAbilityBase other = abilities[i];
+            bool otherSubmerged = other.IsSubmerged;
+            current |= otherSubmerged;
+            next |= other == ability ? submerged : otherSubmerged;
+        }
+
+        return current != next;
     }
 }
 

@@ -1,3 +1,4 @@
+using System;
 using static LightContainmentZoneDecontamination.DecontaminationController;
 
 namespace LabApi.Features.Wrappers;
@@ -8,15 +9,26 @@ namespace LabApi.Features.Wrappers;
 public static class Decontamination
 {
     /// <summary>
-    /// Offset that has not been folded into the synchronized round start time yet, because the decontamination
-    /// timer had not started when it was set. Applied by the decontamination patch once the timer starts.
+    /// Smallest synchronized round start time the offset may produce. The fork's <c>UpdateTime</c> (server and clients)
+    /// stops the timer while <c>RoundStartTime</c> is 0 or below.
+    /// </summary>
+    private const double MinRoundStartTime = 0.001;
+
+    /// <summary>
+    /// Offset that has not been applied yet, because the decontamination timer had not started when it was set.
+    /// Applied by the decontamination patch once the timer starts.
     /// </summary>
     internal static float PendingOffset;
 
     /// <summary>
-    /// Offset already folded into the synchronized round start time.
+    /// Offset folded into the synchronized round start time (seen by the server and clients).
     /// </summary>
-    private static float _appliedOffset;
+    private static float _shiftedOffset;
+
+    /// <summary>
+    /// Offset kept in the controller's server-only <c>TimeOffset</c>, because the round start time cannot move further.
+    /// </summary>
+    private static float _serverOnlyOffset;
 
     /// <summary>
     /// Gets or sets the decontamination status.
@@ -49,11 +61,14 @@ public static class Decontamination
     /// <remarks>
     /// The Carl Mod controller does not synchronize its own time offset, so the offset is applied by shifting the
     /// synchronized round start time, which keeps the client timers and announcements in step with the server.
-    /// An offset set before the decontamination timer starts is applied when it starts.
+    /// An offset set before the decontamination timer starts is applied when it starts. The start time is network time
+    /// since the server started and must stay above 0, so a positive offset larger than that (early in the server's life)
+    /// is applied up to that limit and the rest goes to the controller's server-only <c>TimeOffset</c>: server phases follow
+    /// the full offset, while client timers and announcement audio lag by the rest.
     /// </remarks>
     public static float Offset
     {
-        get => _appliedOffset + PendingOffset;
+        get => _shiftedOffset + _serverOnlyOffset + PendingOffset;
         set
         {
             float delta = value - Offset;
@@ -62,31 +77,32 @@ public static class Decontamination
                 return;
             }
 
-            if (Singleton.RoundStartTime > 0.0)
-            {
-                Singleton.NetworkRoundStartTime = Singleton.RoundStartTime - delta;
-                _appliedOffset += delta;
-            }
-            else
-            {
-                PendingOffset += delta;
-            }
+            PendingOffset += delta;
+            ApplyPendingOffset(Singleton);
         }
     }
 
     /// <summary>
-    /// Folds the pending offset into the synchronized round start time once the timer has started.
+    /// Applies the pending offset once the timer has started, splitting it between the synchronized round start time and
+    /// the controller's server-only time offset.
     /// </summary>
     /// <param name="controller">The decontamination controller.</param>
     internal static void ApplyPendingOffset(LightContainmentZoneDecontamination.DecontaminationController controller)
     {
-        if (controller.RoundStartTime <= 0.0)
+        if (controller == null || controller.RoundStartTime <= 0.0)
         {
             return;
         }
 
-        controller.NetworkRoundStartTime = controller.RoundStartTime - PendingOffset;
-        _appliedOffset += PendingOffset;
+        float total = _shiftedOffset + _serverOnlyOffset + PendingOffset;
+        double unshiftedStart = controller.RoundStartTime + _shiftedOffset;
+        float shift = (float)Math.Min(total, unshiftedStart - MinRoundStartTime);
+        float serverOnly = total - shift;
+
+        controller.NetworkRoundStartTime = unshiftedStart - shift;
+        controller.TimeOffset += serverOnly - _serverOnlyOffset;
+        _shiftedOffset = shift;
+        _serverOnlyOffset = serverOnly;
         PendingOffset = 0f;
     }
 
@@ -96,6 +112,7 @@ public static class Decontamination
     internal static void ResetOffset()
     {
         PendingOffset = 0f;
-        _appliedOffset = 0f;
+        _shiftedOffset = 0f;
+        _serverOnlyOffset = 0f;
     }
 }

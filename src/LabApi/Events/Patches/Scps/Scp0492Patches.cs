@@ -4,25 +4,41 @@ using LabApi.Events.Handlers;
 using PlayerRoles;
 using PlayerRoles.PlayableScps.Scp049;
 using PlayerRoles.PlayableScps.Scp049.Zombies;
+using PlayerRoles.PlayableScps.Subroutines;
+using PlayerRoles.Subroutines;
 using PlayerStatsSystem;
 
 namespace LabApi.Events.Patches.Scps;
 
 // Official: PlayerRoles/PlayableScps/Scp049/Zombies/ZombieConsumeAbility.cs ServerProcessCmd
-// The fork does not override ServerProcessCmd, so the shared RagdollAbilityBase method is patched and filtered by type.
-[HarmonyPatch(typeof(RagdollAbilityBase<ZombieRole>), nameof(RagdollAbilityBase<ZombieRole>.ServerProcessCmd))]
+// The fork does not override ServerProcessCmd, and RagdollAbilityBase<T>.ServerProcessCmd must not be patched: Mono shares its
+// body with SCP-049's resurrect ability (RagdollAbilityBase<Scp049Role>). The server dispatch of subroutine commands is observed
+// instead, only for a ZombieConsumeAbility that was not consuming before the command.
+[HarmonyPatch(typeof(SubroutineMessage), nameof(SubroutineMessage.Apply))]
 internal static class Scp0492StartedConsumingCorpsePatch
 {
-    private static void Prefix(RagdollAbilityBase<ZombieRole> __instance, out bool __state)
+    private static void Prefix(ref SubroutineMessage __instance, ReferenceHub hub, bool server, out ZombieConsumeAbility? __state)
     {
-        __state = Scp0492Events.HasStartedConsumingCorpse && __instance is ZombieConsumeAbility && !__instance.IsInProgress;
+        __state = null;
+        if (!server || !Scp0492Events.HasStartedConsumingCorpse || hub == null
+            || hub.roleManager.CurrentRole is not ISubroutinedScpRole role || hub.GetRoleId() != __instance._role)
+        {
+            return;
+        }
+
+        int index = __instance._subroutineIndex - 1;
+        SubroutineBase[] subroutines = role.SubroutineModule.AllSubroutines;
+        if (index >= 0 && index < subroutines.Length && subroutines[index] is ZombieConsumeAbility ability && !ability.IsInProgress)
+        {
+            __state = ability;
+        }
     }
 
-    private static void Postfix(RagdollAbilityBase<ZombieRole> __instance, bool __state)
+    private static void Postfix(ZombieConsumeAbility? __state)
     {
-        if (__state && __instance.IsInProgress)
+        if (__state != null && __state.IsInProgress)
         {
-            Scp0492Events.OnStartedConsumingCorpse(new Scp0492StartedConsumingCorpseEventArgs(__instance.Owner, __instance.CurRagdoll));
+            Scp0492Events.OnStartedConsumingCorpse(new Scp0492StartedConsumingCorpseEventArgs(__state.Owner, __state.CurRagdoll));
         }
     }
 }

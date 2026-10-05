@@ -37,6 +37,13 @@ internal static class ThrowingProjectilePatch
             return false;
         }
 
+        if (__instance._serverThrown || __instance._alreadyFired)
+        {
+            // Already thrown (a repeated confirmation, or the item was thrown on removal): the fork only resends the throw cue.
+            // No event, so a denial can never undo a completed throw.
+            return true;
+        }
+
         ReferenceHub owner = __instance.Owner;
         Transform camera = owner.PlayerCameraReference;
         Vector3 position = camera.position;
@@ -109,6 +116,12 @@ internal static class ThrowingProjectilePatch
 
     private static void Cancel(ThrowableItem item)
     {
+        if (item._serverThrown || item._alreadyFired)
+        {
+            // A handler threw the item (for example by dropping it). Holstering would reset the throw state and keep the item.
+            return;
+        }
+
         new ThrowableNetworkHandler.ThrowableItemAudioMessage(item.ItemSerial, ThrowableNetworkHandler.RequestType.CancelThrow).SendToAuthenticated();
 
         InventorySystem.Inventory inventory = item.OwnerInventory;

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.ComponentModel;
+using PlayerRoles;
 
 namespace EventProbe;
 
@@ -40,6 +41,9 @@ public sealed class ProbeConfig
 
     [Description("Cancellable events (Class.Event) whose IsAllowed is set to false. Also settable at runtime: 'probe cancel <Class.Event>'.")]
     public List<string> CancelEvents { get; set; } = [];
+
+    [Description("Role given instead of Spectator when a player dies (PlayerEvents.ChangingRole with ChangeReason Died). None keeps the death role. Tests role changes on death. Also settable at runtime: 'probe deathrole <RoleTypeId|None>'.")]
+    public RoleTypeId DeathRole { get; set; } = RoleTypeId.None;
 
     [Description("Copy server console lines into the Unity log when the server runs with the file console (-key<session>), whose output text is otherwise lost.")]
     public bool MirrorFileConsoleToUnityLog { get; set; } = true;

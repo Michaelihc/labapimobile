@@ -11,12 +11,14 @@
   Windows features. "emulator -accel-check" is run at the end.
 
 .PARAMETER Sdk      SDK root (default %LOCALAPPDATA%\Android\Sdk).
-.PARAMETER AvdName  AVD name (default carlmod_api36).
+.PARAMETER AvdName  AVD name (default carlmod_api36). Alias -Avd. A second AVD for two-client tests:
+                   -AvdName carlmod_api36_b (an AVD can run only once at a time).
 .PARAMETER Recreate Delete and recreate the AVD.
 #>
 [CmdletBinding()]
 param(
     [string]$Sdk = (Join-Path $env:LOCALAPPDATA 'Android\Sdk'),
+    [Alias('Avd')]
     [string]$AvdName = 'carlmod_api36',
     [string]$CmdlineToolsUrl = 'https://dl.google.com/android/repository/commandlinetools-win-16111833_latest.zip',
     [string]$SystemImage = 'system-images/android-36/google_apis/x86_64',

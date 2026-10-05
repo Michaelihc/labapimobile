@@ -4,6 +4,8 @@ using LabApi.Events.Handlers;
 using MapGeneration;
 using Mirror;
 using PlayerRoles;
+using PlayerRoles.PlayableScps.Scp079;
+using PlayerRoles.PlayableScps.Scp079.Cameras;
 using RoundRestarting;
 using System;
 using PlayerWrapper = LabApi.Features.Wrappers.Player;
@@ -68,7 +70,14 @@ internal static class PlayerRoomTracker
             }
 
             RoomIdentifier? room = null;
-            if (hub.IsAlive())
+            if (hub.roleManager.CurrentRole is Scp079Role scp079)
+            {
+                // The camera's own room. Its cached CameraPosition is stale on the frame SCP-079 switches cameras, which
+                // reported a null room for one frame.
+                Scp079Camera? camera = scp079.CurrentCamera;
+                room = camera != null ? camera.Room : null;
+            }
+            else if (hub.IsAlive())
             {
                 // Same lookup as official RoomUtils.TryGetRoom: grid cell first, then a raycast up and down. Rooms larger
                 // than their grid cells (Hcz106, surface parts) are otherwise reported as null while walking through them.

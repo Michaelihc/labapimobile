@@ -20,6 +20,7 @@
     <Reference Include="DigitalDust" HintPath="$(CarlManaged)\DigitalDust.dll" Private="false" />
     <Reference Include="Mirror" HintPath="$(CarlManaged)\Mirror.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(CarlManaged)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(CarlManaged)\UnityEngine.PhysicsModule.dll" Private="false" />
     <Reference Include="mscorlib" HintPath="$(CarlManaged)\mscorlib.dll" Private="false" />
     <Reference Include="System" HintPath="$(CarlManaged)\System.dll" Private="false" />
     <Reference Include="System.Core" HintPath="$(CarlManaged)\System.Core.dll" Private="false" />

@@ -7,6 +7,7 @@ using LabApi.Events.Arguments.PlayerEvents;
 using LabApi.Events.Handlers;
 using Mirror;
 using PlayerRoles.FirstPersonControl;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LabApi.Events.Patches.ItemsGeneral;
@@ -177,6 +178,7 @@ internal static class DroppingItemPatch
 /// <remarks>
 /// As in the official game, changes to the event's type and amount are not applied.
 /// DroppedAmmo is raised once per spawned ammo pickup, after the pickup is spawned with its amount.
+/// <see cref="Features.Wrappers.Player.DropAmmo"/> also drops through <see cref="DropAmmo"/>, so it raises the same events.
 /// </remarks>
 // Official: InventorySystem/InventoryExtensions.cs ServerDropAmmo
 [HarmonyPatch(typeof(InventoryExtensions), nameof(InventoryExtensions.ServerDropAmmo))]
@@ -194,7 +196,21 @@ internal static class DroppingAmmoPatch
             return true;
         }
 
-        __result = false;
+        __result = DropAmmo(inv, ammoType, amount, checkMinimals, null);
+        return false;
+    }
+
+    /// <summary>
+    /// The Carl Mod <c>InventoryExtensions.ServerDropAmmo</c> body with the DroppingAmmo / DroppedAmmo events.
+    /// </summary>
+    /// <param name="inv">The inventory to drop from.</param>
+    /// <param name="ammoType">The ammo type.</param>
+    /// <param name="amount">The amount to drop.</param>
+    /// <param name="checkMinimals">Whether a small amount is raised to half of a pickup.</param>
+    /// <param name="spawned">Receives the spawned ammo pickups, or <see langword="null"/>.</param>
+    /// <returns>The fork's result: whether the reserve covered <paramref name="amount"/>.</returns>
+    internal static bool DropAmmo(Inventory inv, ItemType ammoType, ushort amount, bool checkMinimals, List<AmmoPickup>? spawned)
+    {
         if (!inv.UserInventory.ReserveAmmo.TryGetValue(ammoType, out ushort reserve) || !InventoryItemLoader.AvailableItems.TryGetValue(ammoType, out ItemBase template))
         {
             return false;
@@ -238,6 +254,7 @@ internal static class DroppingAmmoPatch
                 ammoPickup.NetworkSavedAmmo = dropped;
                 remaining -= ammoPickup.SavedAmmo;
                 NetworkServer.Spawn(pickup.gameObject);
+                spawned?.Add(ammoPickup);
                 if (PlayerEvents.HasDroppedAmmo)
                 {
                     PlayerEvents.OnDroppedAmmo(new PlayerDroppedAmmoEventArgs(inv._hub, ammoType, dropped, ammoPickup));
@@ -250,7 +267,6 @@ internal static class DroppingAmmoPatch
             }
         }
 
-        __result = amount <= reserve;
-        return false;
+        return amount <= reserve;
     }
 }

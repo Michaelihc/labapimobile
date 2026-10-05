@@ -103,15 +103,17 @@ internal static class FacilityStructureAddedPatch
     }
 }
 
-// Official: BreakableWindow.cs Awake/OnDestroy (OnAdded/OnDestroyed); Carl Mod's window has only Awake.
+// Official: BreakableWindow.cs Start/OnDestroy (OnAdded/OnDestroyed); Carl Mod's window has only Awake.
+// The wrapper is added from the notifier's Start: in Awake the window is not yet active and enabled, so it would not be cached.
 [HarmonyPatch(typeof(BreakableWindow), nameof(BreakableWindow.Awake))]
 internal static class FacilityWindowAddedPatch
 {
-    private static void Postfix(BreakableWindow __instance)
-    {
-        Window.OnAdded(__instance);
-        FacilityDestroyNotifier.Attach(__instance.gameObject, __instance, static x => Window.OnRemoved((BreakableWindow)x));
-    }
+    private static void Postfix(BreakableWindow __instance) =>
+        FacilityDestroyNotifier.Attach(
+            __instance.gameObject,
+            __instance,
+            static x => Window.OnRemoved((BreakableWindow)x),
+            static x => Window.OnAdded((BreakableWindow)x));
 }
 
 // Official: Hazards/EnvironmentalHazard.cs Awake (OnAdded); Carl Mod's hazard has no Awake, Start is the first server hook.

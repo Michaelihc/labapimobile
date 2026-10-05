@@ -10,11 +10,13 @@
   round state is then up to the server (use tools\Send-ServerCommand.ps1 -Command forcestart).
 
 .PARAMETER Address  host[:port] to join. The emulator reaches the host machine at 10.0.2.2.
+.PARAMETER Serial  adb serial of the emulator, for example emulator-5556 (overrides -ConsolePort, default emulator-5554).
 #>
 [CmdletBinding()]
 param(
     [string]$Address = '10.0.2.2:7791',
     [int]$ConsolePort = 5554,
+    [string]$Serial,
     [int]$MenuTimeoutSec = 90,
     [int]$JoinTimeoutSec = 120
 )
@@ -22,7 +24,7 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_common.ps1')
 
-$serial = Get-EmulatorSerial $ConsolePort
+$serial = Resolve-EmulatorSerial $Serial $ConsolePort
 Assert-EmulatorOnline $serial
 if (-not (Invoke-Adb $serial shell pidof com.carlmod.game | Select-Object -First 1)) { throw 'The client is not running. Run Start-Client.ps1 first.' }
 

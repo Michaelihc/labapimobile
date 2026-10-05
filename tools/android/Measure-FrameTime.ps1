@@ -22,6 +22,7 @@
 .PARAMETER Name         Label used in the output file name.
 .PARAMETER DurationSec  Sampling time (default 20).
 .PARAMETER WarmupSec    Seconds to wait before sampling (default 0).
+.PARAMETER Serial       adb serial of the emulator, for example emulator-5556 (overrides -ConsolePort).
 #>
 [CmdletBinding()]
 param(
@@ -29,6 +30,7 @@ param(
     [int]$DurationSec = 20,
     [int]$WarmupSec = 0,
     [int]$ConsolePort = 5554,
+    [string]$Serial,
     [string]$Package = 'com.carlmod.game',
     [double]$LongFrameMs = 33.4
 )
@@ -36,9 +38,12 @@ param(
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '_common.ps1')
 
-$serial = Get-EmulatorSerial $ConsolePort
+$serial = Resolve-EmulatorSerial $Serial $ConsolePort
 Assert-EmulatorOnline $serial
 if (-not (Invoke-Adb $serial shell pidof $Package | Select-Object -First 1)) { throw "$Package is not running." }
+
+# A background emulator window is power throttled by Windows; make sure this one is not (no-op when already done).
+if (-not (Disable-EmulatorPowerThrottling (Get-EmulatorConsolePort $serial))) { Write-Warning "No qemu process found for $serial; power throttling not disabled." }
 
 if ($WarmupSec -gt 0) { Write-Host "Warm-up $WarmupSec s"; Start-Sleep -Seconds $WarmupSec }
 

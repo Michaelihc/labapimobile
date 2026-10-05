@@ -11,7 +11,10 @@ namespace LabApi.Events.Patches.Internal;
 /// </summary>
 /// <remarks>
 /// Official SL stores <c>PlayerRoleBase.UniqueLifeIdentifier</c> on the role and resets <c>HealthStat.MaxValue</c> on class change.
-/// Carl Mod has neither, so both live in LabAPI and are refreshed here.
+/// Carl Mod has neither, so both live in LabAPI and are refreshed here. This is a prefix: the fork's
+/// <c>HealthStat.ClassChanged</c> sets the new role's health from <c>MaxValue</c> inside <c>InitializeNewRole</c>
+/// (through <c>PlayerRoleManager.OnRoleChanged</c>), so the old override must be gone before that, and events raised
+/// during the role change must see the new life.
 /// </remarks>
 // Official: PlayerRoles/PlayerRoleBase.cs Init (UniqueLifeIdentifier) and PlayerStatsSystem/HealthStat.cs ClassChanged
 [HarmonyPatch(typeof(PlayerRoleManager), nameof(PlayerRoleManager.InitializeNewRole))]
@@ -19,7 +22,7 @@ internal static class PlayerRoleInitializedPatch
 {
     private static int _lifeCounter;
 
-    private static void Postfix(PlayerRoleManager __instance)
+    private static void Prefix(PlayerRoleManager __instance)
     {
         ReferenceHub hub = __instance.Hub;
         if (hub == null)

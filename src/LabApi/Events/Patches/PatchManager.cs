@@ -72,6 +72,16 @@ public static class PatchManager
             }
         }
 
+        // Mono shares one native body between all reference-type instantiations of a generic method, so a patch on, say,
+        // ScpAttackAbilityBase<Scp939Role> also replaces ZombieAttackAbility's method. Patch a non-generic override instead.
+        foreach (MethodBase method in Harmony.GetPatchedMethods())
+        {
+            if (method.DeclaringType is { IsGenericType: true } || method.IsGenericMethod)
+            {
+                Logger.Error($"{LoggerPrefix} {method.DeclaringType}.{method.Name} is generic; its patch also affects every other reference-type instantiation on Mono.");
+            }
+        }
+
         stopwatch.Stop();
         Logger.Info($"{LoggerPrefix} Applied {AppliedPatchCount} patch classes in {stopwatch.ElapsedMilliseconds} ms ({FailedPatches.Count} failed)");
     }

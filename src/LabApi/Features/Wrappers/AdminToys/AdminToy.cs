@@ -419,6 +419,11 @@ public class AdminToy
     /// </summary>
     /// <remarks>
     /// Used for state the Carl Mod client only reads when the toy is created (the primitive collider).
+    /// <para>
+    /// A toy with <see cref="Visibility.ForceHidden"/> keeps its observers: Mirror gives such a toy no observers when it is
+    /// spawned again, so the connections that observed it before are added back (each receives the destroy and a new
+    /// spawn). Plugins that choose a toy's observers themselves (ProjectMER's managed visibility) therefore keep control.
+    /// </para>
     /// </remarks>
     protected void Respawn()
     {
@@ -427,9 +432,39 @@ public class AdminToy
             return;
         }
 
+        NetworkIdentity identity = Base.netIdentity;
+        bool keepObservers = identity.visibility == Visibility.ForceHidden && identity.observers.Count > 0;
+        if (keepObservers)
+        {
+            RespawnObservers.Clear();
+            RespawnObservers.AddRange(identity.observers.Values);
+        }
+
         NetworkServer.UnSpawn(GameObject);
         Spawn();
+
+        if (!keepObservers)
+        {
+            return;
+        }
+
+        foreach (NetworkConnectionToClient connection in RespawnObservers)
+        {
+            // Skip connections that dropped out in between; Mirror only sends spawns to ready ones.
+            if (connection != null && connection.isReady && (ReferenceEquals(connection, NetworkServer.localConnection)
+                || (NetworkServer.connections.TryGetValue(connection.connectionId, out NetworkConnectionToClient current) && ReferenceEquals(current, connection))))
+            {
+                identity.AddObserver(connection);
+            }
+        }
+
+        RespawnObservers.Clear();
     }
+
+    /// <summary>
+    /// Reused list of the observers a <see cref="Visibility.ForceHidden"/> toy had before <see cref="Respawn"/>.
+    /// </summary>
+    private static readonly List<NetworkConnectionToClient> RespawnObservers = [];
 
     /// <summary>
     /// Writes the transform to the toy's SyncVars. Mirror skips unchanged values, so equal state is never dirtied.

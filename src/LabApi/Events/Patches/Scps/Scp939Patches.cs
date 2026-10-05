@@ -9,6 +9,7 @@ using PlayerRoles.PlayableScps.Scp939;
 using PlayerRoles.PlayableScps.Scp939.Mimicry;
 using PlayerStatsSystem;
 using RelativePositioning;
+using System.Collections.Generic;
 using UnityEngine;
 using Utils.Networking;
 
@@ -139,23 +140,87 @@ internal static class Scp939CreatingAmnesticCloudPatch
 }
 
 // Official: PlayerRoles/PlayableScps/Scp939/Scp939ClawAbility.cs DamagePlayer
-// The fork claw damages every targeted hitbox in the shared ScpAttackAbilityBase.ServerPerformAttack; one event per player.
-[HarmonyPatch(typeof(ScpAttackAbilityBase<Scp939Role>), nameof(ScpAttackAbilityBase<Scp939Role>.ServerPerformAttack))]
+// The fork claw damages every targeted hitbox in ScpAttackAbilityBase<T>.ServerPerformAttack. That method must not be
+// patched: Mono shares one body for every reference-type instantiation, so a patch would also replace ZombieAttackAbility's
+// attack (with statics bound to the SCP-939 instantiation). The 939-only ServerProcessCmd override is patched instead and
+// replays ScpAttackAbilityBase<Scp939Role>.ServerProcessCmd and ServerPerformAttack with one event per player.
+[HarmonyPatch(typeof(Scp939ClawAbility), nameof(Scp939ClawAbility.ServerProcessCmd))]
 internal static class Scp939ClawAttackingPatch
 {
-    private static bool Prefix(ScpAttackAbilityBase<Scp939Role> __instance)
+    private static bool Prefix(Scp939ClawAbility __instance, NetworkReader reader)
     {
-        if ((!Scp939Events.HasAttacking && !Scp939Events.HasAttacked) || __instance is not Scp939ClawAbility)
+        if (!Scp939Events.HasAttacking && !Scp939Events.HasAttacked)
         {
             return true;
         }
 
-        Transform camera = __instance.PlyCam;
-        int count = Physics.OverlapSphereNonAlloc(__instance.OverlapSphereOrigin, __instance._detectionRadius, ScpAttackAbilityBase<Scp939Role>.DetectionsNonAlloc, ScpAttackAbilityBase<Scp939Role>.DetectionMask);
-        __instance._syncAttack = AttackResult.None;
+        if (__instance._focusAbility.State != 0f)
+        {
+            return false;
+        }
+
+        // ScpAttackAbilityBase<T>.ServerProcessCmd; its base (SubroutineBase.ServerProcessCmd) is empty.
+        RelativePosition ownerClaim = reader.ReadRelativePosition();
+        if (ownerClaim.WaypointId == 0)
+        {
+            __instance._attackTriggered = true;
+            __instance.ServerSendRpc(toAll: true);
+            return false;
+        }
+
+        if (!__instance._serverCooldown.TolerantIsReady && !__instance.Owner.isLocalPlayer)
+        {
+            return false;
+        }
+
+        __instance._attackTriggered = false;
+        Quaternion ownerRotation = reader.ReadLowPrecisionQuaternion().Value;
+        HashSet<FpcBacktracker> backtracked = ScpAttackAbilityBase<Scp939Role>.BacktrackedPlayers;
+        HashSet<ReferenceHub> targeted = ScpAttackAbilityBase<Scp939Role>.TargettedPlayers;
+        backtracked.Add(new FpcBacktracker(__instance.Owner, ownerClaim.Position, ownerRotation));
+        while (reader.Position < reader.Capacity)
+        {
+            ReferenceHub hub = reader.ReadReferenceHub();
+            RelativePosition claim = reader.ReadRelativePosition();
+            if (hub != null && hub.roleManager.CurrentRole is HumanRole)
+            {
+                backtracked.Add(new FpcBacktracker(hub, claim.Position));
+                targeted.Add(hub);
+            }
+        }
+
+        ReferenceHub.TryGetHostHub(out ReferenceHub host);
+        bool ownHitboxes = !__instance.Owner.isLocalPlayer && HitboxIdentity.SetOwnHitboxes(host, state: true);
+        PerformAttack(__instance);
+        if (ownHitboxes)
+        {
+            HitboxIdentity.SetOwnHitboxes(host, state: false);
+        }
+
+        foreach (FpcBacktracker backtracker in backtracked)
+        {
+            backtracker.RestorePosition();
+        }
+
+        __instance._serverCooldown.Trigger(__instance.BaseCooldown);
+        backtracked.Clear();
+        targeted.Clear();
+        __instance.ServerSendRpc(toAll: true);
+        return false;
+    }
+
+    /// <summary>
+    /// The fork's <c>ScpAttackAbilityBase&lt;Scp939Role&gt;.ServerPerformAttack</c> with Attacking / Attacked per player.
+    /// </summary>
+    private static void PerformAttack(Scp939ClawAbility ability)
+    {
+        Transform camera = ability.PlyCam;
+        Collider[] detections = ScpAttackAbilityBase<Scp939Role>.DetectionsNonAlloc;
+        int count = Physics.OverlapSphereNonAlloc(ability.OverlapSphereOrigin, ability._detectionRadius, detections, ScpAttackAbilityBase<Scp939Role>.DetectionMask);
+        ability._syncAttack = AttackResult.None;
         for (int i = 0; i < count; i++)
         {
-            if (!ScpAttackAbilityBase<Scp939Role>.DetectionsNonAlloc[i].TryGetComponent(out IDestructible destructible)
+            if (!detections[i].TryGetComponent(out IDestructible destructible)
                 || Physics.Linecast(camera.position, destructible.CenterOfMass, ScpAttackAbilityBase<Scp939Role>.BlockerMask))
             {
                 continue;
@@ -163,13 +228,13 @@ internal static class Scp939ClawAttackingPatch
 
             if (destructible is not HitboxIdentity hitbox)
             {
-                if (!destructible.Damage(__instance.DamageAmount, __instance.DamageHandler, destructible.CenterOfMass))
+                if (!destructible.Damage(ability.DamageAmount, ability.DamageHandler, destructible.CenterOfMass))
                 {
                     continue;
                 }
 
-                __instance.OnDestructibleDamaged(destructible);
-                __instance._syncAttack |= AttackResult.AttackedObject;
+                ability.OnDestructibleDamaged(destructible);
+                ability._syncAttack |= AttackResult.AttackedObject;
                 continue;
             }
 
@@ -179,10 +244,10 @@ internal static class Scp939ClawAttackingPatch
             }
 
             ReferenceHub target = hitbox.TargetHub;
-            float damage = __instance.DamageAmount;
+            float damage = ability.DamageAmount;
             if (Scp939Events.HasAttacking)
             {
-                Scp939AttackingEventArgs e = new(__instance.Owner, target, damage);
+                Scp939AttackingEventArgs e = new(ability.Owner, target, damage);
                 Scp939Events.OnAttacking(e);
                 if (!e.IsAllowed)
                 {
@@ -193,7 +258,7 @@ internal static class Scp939ClawAttackingPatch
                 damage = e.Damage;
             }
 
-            Scp939DamageHandler handler = new(__instance.ScpRole, Scp939DamageType.Claw)
+            Scp939DamageHandler handler = new(ability.ScpRole, Scp939DamageType.Claw)
             {
                 Damage = damage,
             };
@@ -206,21 +271,20 @@ internal static class Scp939ClawAttackingPatch
                 continue;
             }
 
-            __instance.OnDestructibleDamaged(destructible);
-            __instance._syncAttack |= AttackResult.AttackedObject | AttackResult.AttackedHuman;
+            ability.OnDestructibleDamaged(destructible);
+            ability._syncAttack |= AttackResult.AttackedObject | AttackResult.AttackedHuman;
             if (!(target.playerStats.GetModule<HealthStat>().CurValue > 0f))
             {
-                __instance._syncAttack |= AttackResult.KilledHuman;
+                ability._syncAttack |= AttackResult.KilledHuman;
             }
 
             if (Scp939Events.HasAttacked)
             {
-                Scp939Events.OnAttacked(new Scp939AttackedEventArgs(__instance.Owner, target, damage));
+                Scp939Events.OnAttacked(new Scp939AttackedEventArgs(ability.Owner, target, damage));
             }
         }
 
-        __instance.ServerSendRpc(toAll: true);
-        return false;
+        ability.ServerSendRpc(toAll: true);
     }
 }
 
@@ -230,7 +294,8 @@ internal static class Scp939LungeAttackingPatch
 {
     private static bool Prefix(Scp939LungeAbility __instance, NetworkReader reader)
     {
-        if (!Scp939Events.HasAttacking && !Scp939Events.HasAttacked)
+        // Lunging is included: the fork body keeps hitting after a cancelled TriggerLunge.
+        if (!Scp939Events.HasAttacking && !Scp939Events.HasAttacked && !Scp939Events.HasLunging)
         {
             return true;
         }
@@ -246,6 +311,11 @@ internal static class Scp939LungeAttackingPatch
             }
 
             __instance.TriggerLunge();
+            if (__instance.State != Scp939LungeState.Triggered)
+            {
+                // Lunging was cancelled.
+                return false;
+            }
         }
 
         if (target == null || target.roleManager.CurrentRole is not HumanRole { FpcModule: var targetModule })

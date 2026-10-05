@@ -47,6 +47,9 @@ public sealed class EventProbePlugin : Plugin<ProbeConfig>
 
         HashSet<string> throttled = new(Config.ThrottledEvents, StringComparer.OrdinalIgnoreCase);
 
+        // Before the taps, so the logged ChangingRole shows the replaced role.
+        PlayerEvents.ChangingRole += OnChangingRole;
+
         foreach (Type type in typeof(PlayerEvents).Assembly.GetTypes())
         {
             if (type.Namespace != typeof(PlayerEvents).Namespace || !type.IsAbstract || !type.IsSealed)
@@ -80,6 +83,7 @@ public sealed class EventProbePlugin : Plugin<ProbeConfig>
     public override void Disable()
     {
         Timing.KillCoroutines(_reporter);
+        PlayerEvents.ChangingRole -= OnChangingRole;
         foreach (EventTap tap in _taps)
             tap.Subscription.Event?.RemoveEventHandler(null, tap.Subscription.Handler);
 
@@ -110,6 +114,15 @@ public sealed class EventProbePlugin : Plugin<ProbeConfig>
         response = $"{tap.Name}: {(cancel ? "cancelled (IsAllowed = false)" : "allowed")}";
         Write("[PROBE] " + response);
         return true;
+    }
+
+    private void OnChangingRole(LabApi.Events.Arguments.PlayerEvents.PlayerChangingRoleEventArgs ev)
+    {
+        if (Config.DeathRole == PlayerRoles.RoleTypeId.None || ev.ChangeReason != PlayerRoles.RoleChangeReason.Died)
+            return;
+
+        Write($"{Stamp()} DeathRole: {ev.Player.Nickname} dies; NewRole {ev.NewRole} -> {Config.DeathRole}");
+        ev.NewRole = Config.DeathRole;
     }
 
     /// <summary>Lines of the cancellation and count summary for the <c>probe</c> command.</summary>

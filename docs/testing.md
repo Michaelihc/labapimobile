@@ -84,6 +84,39 @@ needed only once per AVD (or when testing a rebuilt APK: `Install-Client.ps1 -Ap
 A client that joins while a round is running becomes a spectator and sees a black screen with
 spectator controls. Use `roundrestart` and then `forcestart` to spawn it.
 
+`Start-Emulator.ps1` writes the emulator log to `.runtime\logs\emulator-<console port>.log` and marks the
+Android "Viewing full screen" hint as seen; on a fresh AVD that hint otherwise covers the game's first launch and
+swallows the `Connect-Client.ps1` taps.
+
+## Two clients
+
+Multiplayer interactions (spectating, cuffing, SCP attacks on a player) need a second client. An AVD can run only
+once, so the second emulator uses its own AVD (same API 36 image) and console port. Every script in
+`tools\android\` takes `-Serial emulator-<port>` (or `-ConsolePort <port>`); the default stays `emulator-5554`.
+
+```powershell
+.\tools\android\Install-AndroidSdk.ps1 -Avd carlmod_api36_b        # once: creates the second AVD
+.\tools\android\Start-Emulator.ps1                                   # emulator-5554, AVD carlmod_api36
+.\tools\android\Start-Emulator.ps1 -Avd carlmod_api36_b -Serial emulator-5556
+.\tools\android\Install-Client.ps1 -Serial emulator-5556             # once per AVD
+.\tools\android\Start-Client.ps1 -Restart -Serial emulator-5556
+.\tools\android\Connect-Client.ps1 -Serial emulator-5556
+.\tools\android\Capture.ps1 -Name b-view -Serial emulator-5556
+.\tools\android\Stop-Emulator.ps1 -Serial emulator-5556
+```
+
+Both emulators (6 GB RAM, 8 cores each) and the server run together on the reference host. Each AVD has its own
+device ID, so the clients join as different players. Player IDs follow the join order and change on every
+reconnect (a client that was connected when the server restarted reconnects by itself); read them from the
+`Joined` lines of the server log before addressing a player. With two players the lobby starts the round on its own
+after a short countdown; `roundlock enable` (RA, `/roundlock enable` from the file console) keeps a test round
+running when one side dies.
+
+The touch HUD cannot reach every action. EventProbe (`tools\EventProbe`) has commands that position players
+(`probe front`, `probe face`, `probe aimat` for SCP-049 resurrection and SCP-049-2 consumption, whose corpse must be
+under the crosshair) and server-side stand-ins for actions without a touch control in the emulator (`probe cuff`,
+`probe lunge`, `probe atlas`, `probe killby`); see its README.
+
 ## Driving the client UI
 
 Screenshots: `.\tools\android\Capture.ps1 -Name <label>` writes
@@ -106,6 +139,17 @@ Main menu tabs from the left: 开始, 游戏, 设置, 操作指南, Console, 退
 
 Example: `adb -s emulator-5554 shell input swipe 358 748 358 480 4000` walks forward for 4 s.
 
+SCP HUDs (same screen): the large attack button (SCP-049 attack, SCP-049-2 / SCP-106 攻击, SCP-939 claw,
+SCP-173 snap) is at 1728, 786; E at 2118, 596 is the SCP-049 resurrection (hold about 10 s) and SCP-049-2
+consumption. Dragging on the right half of the screen turns the camera (`input swipe 1300 300 1300 560 600` looks
+down). SCP-106's stalk is the icon at 2316, 276. SCP-079: 标记 (2322, 274) toggles ping mode, then a long press on the
+view pings; 地图 (72, 1008) opens the map, where tapping a room switches cameras.
+
+Not reachable from the touch HUD in the emulator: cuffing (the fork's `DisarmingController` ignores touch mode),
+SCP-939 focus and lunge (no `MobileCrouch` control on the SCP-939 HUD), SCP-106's Hunter's Atlas (the minimap renders
+empty, so no room can be selected) and SCP-079's room blackout (no control found that sends `Scp079Blackout`;
+keyboard keys are not read in touch mode). Use the EventProbe stand-ins for the first three.
+
 ## Measure frame rate
 
 ```powershell
@@ -125,7 +169,14 @@ to compare builds. For a comparison:
 - same AVD, resolution, host load and scene; stand still in the D-class spawn cell after `forcestart`
   (the cell geometry in view is the same every round);
 - take at least three 30 s runs per build and compare the means; run-to-run spread is about +-4 fps;
-- the display refreshes at 60 Hz, so frame intervals cluster at 16.7, 33.3 and 50 ms.
+- the display refreshes at 60 Hz, so frame intervals cluster at 16.7, 33.3 and 50 ms;
+- interleave the configurations you compare (A, B, A) rather than measuring one after the other.
+
+Windows applies power throttling (EcoQoS) to the emulator's qemu process as soon as another window has focus; in one
+scene that cut the client from about 51 to 39 FPS. `Start-Emulator.ps1` opts the qemu process of its console port out
+(also when the emulator is already running), and `Measure-FrameTime.ps1` does the same before every run, so numbers no
+longer depend on which window is in front. Measurements taken without it (including the reference values below) mix
+throttled and unthrottled runs.
 
 Reference values for the 0.0.4 APK (AVD `carlmod_api36`, 2400x1080, server running on the same host,
 D-class spawn cell, standing still): 31 to 39 FPS (mean of four runs 34.4 FPS), P50 interval 27 to
@@ -135,10 +186,46 @@ Other client facts visible in logcat: Unity reports 2 CPU cores, the ES 3.2 cont
 Unity falls back to a lower ES version, and the process runs as `Google sdk_gphone64_x86_64`.
 `adb -s emulator-5554 logcat -s Unity:V` shows the client log.
 
+## ProjectMER on the Android client
+
+Install `ProjectMER.dll` next to `EventProbe.dll` in
+`.runtime\server-emu\AppData\SCP Secret Laboratory\LabAPI-Mobile\plugins\global\`, and copy fixtures generated by
+`python tools/make-mer-fixtures.py` to `LabAPI-Mobile\configs\ProjectMER\{Maps,Schematics}`. EventProbe mirrors the
+console into the server log (ProjectMER's command replies and load reports are read there) and its commands drive the
+tests: `probe tp`/`probe yaw` give repeatable views, `probe as <id> mp ...` runs player-bound ProjectMER commands
+(`select`, `pos`, `mod`...) as that player, `probe elevator`, `probe netobj` and `probe waypoints` check rides, object
+state and door waypoints (tools\EventProbe\README.md).
+
+- **The stage.** Carl Mod's surface is a closed hall, and the server-side fixtures at x 20, z -60 float in the void. The
+  `A*` fixtures are built for a player at the NTF spawn: `/forceclass <id> 13`, `probe tp <id> 132.76 995.4 -38.76`,
+  `probe yaw <id> 180` looks down the hall (floor at y 994.5). `AWall150/500/2000` (and `AWall500Dyn`) are walls of
+  0.2 m cubes 14 m ahead, `AFlagWall` every flag and sign pattern, `AWalkLanes` walk-through lanes, `ASeams` rotated
+  rows, `AEveryType` doors, workstation, lockers, pickups, a target and teleports, `ALights8/16/8Shadows` lights over the
+  wall, and `AVoid<real schematic>` places Battle, Jail, Shipment, Skeld, 35Hp or DeathParty at y 1100 above the hall
+  (teleport into them, and back to the stage before unloading them, or the player falls into the void).
+- **Pitch.** The server can set only the yaw. Swiping the view changes the client's pitch until the next respawn, so
+  respawn (`forceclass`) before frame-time runs and do not touch the screen during them. The role intro text stays on
+  screen for about 6 s after a respawn.
+- **Remote Admin.** Add the AVD's device id to `Members` in `config_remoteadmin.txt` and grant `.*` to that group in
+  `LabAPI-Mobile\configs\permissions.yml`; the client log then shows "Your remote admin access has been granted" when
+  it connects. The 管理 (RA panel) button did not open the panel on the emulator, but the client console (控制台, tap the
+  input at 1070, 918, type with `adb shell input text`, PROCEED at 1862, 918) sends any `/command` as a Remote Admin
+  request. RA replies are not printed in the console; read them in the server log.
+- **Tool gun buttons** (with the FSP-9 equipped from the top item bar, third slot at 1200, 50 for the NTF loadout):
+  attack 1728, 786 (or the left one at 72, 344), aim (mouse icon) 1946, 548, light toggle 1946, 270, inspect 254, 432,
+  reload (R) 1896, 984, throw away 72, 832.
+- **Elevators.** Every round generates the facility again, so look up the chambers with
+  `probe goto <id> ElevatorChamber <n> 0` (y about 995 is a gate at the top, y about -1000 at the bottom) and use
+  `probe elevator <id>` to ride. A player inside a gate chamber sees both zones; zone culling hides the other zone only
+  after the player has left the chamber.
+- **Client memory.** `adb -s emulator-5554 shell dumpsys meminfo com.carlmod.game` (TOTAL PSS) shows the material leak of
+  destroyed primitives (docs/projectmer-port-plan.md §5.3). Restart the client between long measurement series.
+
 ## Stop everything
 
 ```powershell
 .\tools\android\Stop-Emulator.ps1      # adb emu kill for emulator-5554 only
+.\tools\android\Stop-Emulator.ps1 -Serial emulator-5556
 .\tools\Stop-TestServer.ps1 -Port 7791 # stops the PID from the PID file, after checking its command line
 ```
 

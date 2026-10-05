@@ -365,16 +365,22 @@ public class Player
     /// <param name="sender">The <see cref="ICommandSender"/> to get the player from.</param>
     /// <param name="player">The <see cref="Player"/> associated with the <see cref="ICommandSender"/> or null if it doesn't exist.</param>
     /// <returns>Whether the player was successfully retrieved.</returns>
+    /// <remarks>
+    /// Resolved from <see cref="RemoteAdmin.PlayerCommandSender.ReferenceHub"/>. Carl Mod user IDs are device IDs chosen by the
+    /// client with no uniqueness check, so a lookup by <see cref="CommandSender.SenderId"/> could return another player.
+    /// Other senders (server console, game console) have no player.
+    /// </remarks>
     public static bool TryGet(ICommandSender? sender, [NotNullWhen(true)] out Player? player)
     {
         player = null;
 
-        if (sender is not CommandSender commandSender)
+        if (sender is not RemoteAdmin.PlayerCommandSender playerSender || playerSender.ReferenceHub == null)
         {
             return false;
         }
 
-        return TryGet(commandSender.SenderId, out player);
+        player = Get(playerSender.ReferenceHub);
+        return true;
     }
 
     #endregion
@@ -1568,51 +1574,21 @@ public class Player
     /// <param name="checkMinimals">Will prevent dropping small amounts of ammo.</param>
     /// <returns>The dropped ammo.</returns>
     /// <remarks>
-    /// Mirrors the Carl Mod <c>InventoryExtensions.ServerDropAmmo</c>, which does not return the pickups it spawns.
+    /// Runs the Carl Mod <c>InventoryExtensions.ServerDropAmmo</c> body (which does not return the pickups it spawns) and
+    /// raises <see cref="Events.Handlers.PlayerEvents.DroppingAmmo"/> / <see cref="Events.Handlers.PlayerEvents.DroppedAmmo"/>
+    /// like a game drop.
     /// </remarks>
     public IEnumerable<AmmoPickup> DropAmmo(ItemType item, ushort amount, bool checkMinimals = true)
     {
-        List<AmmoPickup> dropped = [];
-        Inventory inv = Inventory;
-        if (!inv.UserInventory.ReserveAmmo.TryGetValue(item, out ushort current) || !InventoryItemLoader.AvailableItems.TryGetValue(item, out ItemBase template) || template.PickupDropModel == null)
+        List<InventorySystem.Items.Firearms.Ammo.AmmoPickup> spawned = ListPool<InventorySystem.Items.Firearms.Ammo.AmmoPickup>.Shared.Rent();
+        LabApi.Events.Patches.ItemsGeneral.DroppingAmmoPatch.DropAmmo(Inventory, item, amount, checkMinimals, spawned);
+        List<AmmoPickup> dropped = new(spawned.Count);
+        foreach (InventorySystem.Items.Firearms.Ammo.AmmoPickup pickup in spawned)
         {
-            return dropped;
+            dropped.Add(AmmoPickup.Get(pickup));
         }
 
-        if (checkMinimals && template.PickupDropModel is InventorySystem.Items.Firearms.Ammo.AmmoPickup modelAmmo)
-        {
-            int minimal = Mathf.FloorToInt(modelAmmo.SavedAmmo / 2f);
-            if (amount < minimal && current > minimal)
-            {
-                amount = (ushort)minimal;
-            }
-        }
-
-        int remaining = Mathf.Min(amount, current);
-        inv.UserInventory.ReserveAmmo[item] = (ushort)(current - remaining);
-        inv.SendAmmoNextFrame = true;
-        while (remaining > 0)
-        {
-            PickupSyncInfo psi = new(item, inv.transform.position, Quaternion.identity, template.Weight, 0);
-            ItemPickupBase pickup = inv.ServerCreatePickup(template, psi, false);
-            InventorySystem.Items.Firearms.Ammo.AmmoPickup? ammoPickup = pickup as InventorySystem.Items.Firearms.Ammo.AmmoPickup;
-            if (ammoPickup != null)
-            {
-                ammoPickup.NetworkSavedAmmo = (ushort)Mathf.Min(ammoPickup.MaxAmmo, remaining);
-                remaining -= ammoPickup.SavedAmmo;
-            }
-            else
-            {
-                remaining--;
-            }
-
-            NetworkServer.Spawn(pickup.gameObject);
-            if (ammoPickup != null)
-            {
-                dropped.Add(AmmoPickup.Get(ammoPickup));
-            }
-        }
-
+        ListPool<InventorySystem.Items.Firearms.Ammo.AmmoPickup>.Shared.Return(spawned);
         return dropped;
     }
 

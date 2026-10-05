@@ -56,12 +56,14 @@ internal static class AdminToyAddedPatch
 /// </summary>
 /// <remarks>
 /// Official SL raises <c>AdminToyBase.OnRemoved</c> from <c>AdminToyBase.OnDestroy</c>; Carl Mod's toys have no such method.
+/// A prefix: the server destroy inside <c>OnDestroy</c> resets the identity, which empties <c>NetworkBehaviours</c>, so a
+/// postfix never found the toy and the wrappers of destroyed toys stayed cached.
 /// </remarks>
 // Official: AdminToys/AdminToyBase.cs AdminToyBase.OnDestroy (OnRemoved)
 [HarmonyPatch(typeof(NetworkIdentity), nameof(NetworkIdentity.OnDestroy))]
 internal static class AdminToyRemovedPatch
 {
-    private static void Postfix(NetworkIdentity __instance)
+    private static void Prefix(NetworkIdentity __instance)
     {
         if (AdminToy.Dictionary.Count == 0)
         {

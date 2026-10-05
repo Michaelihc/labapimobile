@@ -13,7 +13,7 @@ States used in the tables:
 - **absent**: removed because the game feature does not exist in Carl Mod. Nothing is left as a throwing stub.
 
 Every event is raised by a Harmony patch in `src/LabApi/Events/Patches/<Area>/`, applied by `PatchManager` from
-`PluginLoader.Initialize()` (185 patch classes). A patch checks `<Handler>.Has<Event>` first and leaves the game
+`PluginLoader.Initialize()` (187 patch classes). A patch checks `<Handler>.Has<Event>` first and leaves the game
 method untouched while the event has no subscribers.
 
 ## Contents
@@ -26,6 +26,7 @@ method untouched while the event has no subscribers.
 - [Facility: doors, rooms, elevators, structures, hazards, SCP-914](#facility-doors-rooms-elevators-structures-hazards-scp-914)
 - [Round, respawn, CASSIE, decontamination and warhead](#round-respawn-cassie-decontamination-and-warhead)
 - [SCP role events](#scp-role-events)
+- [ProjectMER](#projectmer)
 
 ## Core: loader, events, permissions, admin toys
 
@@ -40,6 +41,7 @@ method untouched while the event has no subscribers.
 | `refreshcommands` (fork-only) | supported | After the game clears and rebuilds `RemoteAdminCommandHandler`/`GameConsoleCommandHandler`, LabAPI and plugin `[CommandHandler]` commands are registered again. Commands registered manually without the attribute are not restored. |
 | `EventManager` | supported | Each subscriber runs in its own try/catch as in official. The subscriber array is cached per event args type and rebuilt only when the subscriber set changes, so invoking does not allocate. Errors name the failing subscriber. |
 | `Has<Event>` | supported | Generated per event; patches check it before allocating args. |
+| Mirror host spawn payloads | adapted | The server is a Mirror host, and its own client deserializes every spawn message it receives into the server's object one frame later (`NetworkClient.OnHostClientSpawn`), with the state of the moment the message was sent. That would revert SyncVars written right after spawning on the server: a toy from `PrimitiveObjectToy.Create(..., networkSpawn: true)` given a colour and `IsStatic = false` in the same frame would be white and static again a frame later (and the next broadcast could send that to clients). `HostSpawnPayloadPatch` (`Events/Patches/Internal/`) re-serializes the current state into the host's message, so host spawn hooks still run, with current values. |
 | `DefaultPermissionsProvider` | supported | Group key comes from `config_remoteadmin` `Members` (`PermissionsHandler._members`), like official `Player.PermissionsGroupName`. Unknown or unassigned users use `default`. |
 | `Plugin.IsTransparent`, transparent-modded flag | absent | Carl Mod has no transparently-modded server flag. |
 | `LabApiProperties` | supported | Also accepts an informational version without a `+commit` suffix. |
@@ -62,15 +64,15 @@ Only `PrimitiveObjectToy`, `LightSourceToy` and `ShootingTarget` exist in Carl M
 
 | Wrapper / member | State | Notes |
 | --- | --- | --- |
-| `AdminToy` cache (`List`, `Get`) | adapted | No `AdminToyBase.OnAdded`/`OnRemoved`: wrappers are added when a toy is network spawned (or created through a wrapper) and removed when it is destroyed. Unspawned toys instantiated outside the wrappers appear only after `Get`. |
+| `AdminToy` cache (`List`, `Get`) | adapted | No `AdminToyBase.OnAdded`/`OnRemoved`: wrappers are added when a toy is network spawned (or created through a wrapper) and removed when it is destroyed (a prefix on `NetworkIdentity.OnDestroy`, which empties the identity's behaviour list as it runs). Unspawned toys instantiated outside the wrappers appear only after `Get`. |
 | `AdminToy.Create*` / spawning | adapted | Prefab found in `NetworkClient.prefabs`. New toys start static; the first wrapper `Position`/`Rotation`/`Scale`/`Parent` change after spawn makes them dynamic unless the plugin set `IsStatic` itself. Moving a static toy through `Transform` directly needs `IsStatic = false`. Spawning does not send the pre-spawn SyncVar writes again. |
 | `Position`, `Rotation`, `Scale` | adapted | Setters also write the SyncVars (unchanged values are not dirtied), because Carl Mod only syncs dynamic toys each frame. Rotation is sent as a low-precision quaternion. |
 | `Parent` | approximated | Server-side only: clients have no toy parenting and receive the world position/rotation and local scale while the toy is dynamic. A parented static toy spawns at its local coordinates. |
 | `IsStatic`, `MovementSmoothing`, `SyncInterval`, `Spawn`, `Destroy` | supported | |
 | `PrimitiveObjectToy.Type`, `Color` | supported | |
-| `PrimitiveObjectToy.Flags` | approximated | No flags SyncVar; the client adds a mesh collider only when a component of the `Scale` SyncVar is positive, and static toys keep the transform of their spawn message. Static toys: positive transform scale, `Scale` SyncVar positive with `Collidable` and negated without it. Dynamic toys render the SyncVar: positive scale with `Collidable`, otherwise an all-negative scale plus a 180° turn about local X, which looks the same for every Unity primitive (including the one-sided Plane and Quad). Without `Visible` the color is sent with zero alpha (the primitive still renders, transparent). Changing `Collidable` on a spawned toy respawns it; switching `IsStatic` re-encodes the transform. |
+| `PrimitiveObjectToy.Flags` | approximated | No flags SyncVar; the client adds a mesh collider only when a component of the `Scale` SyncVar is positive, and static toys keep the transform of their spawn message. Static toys: positive transform scale, `Scale` SyncVar positive with `Collidable` and negated without it. Dynamic toys render the SyncVar: positive scale with `Collidable`, otherwise an all-negative scale plus a 180° turn about local X, which looks the same for every Unity primitive (including the one-sided Plane and Quad). Without `Visible` the color is sent with zero alpha (the primitive still renders, transparent). Changing `Collidable` on a spawned toy respawns it; switching `IsStatic` re-encodes the transform. A respawned toy spawned with `Visibility.ForceHidden` keeps its observers (plugins that pick observers per player, such as ProjectMER, keep control); other toys go to every ready player, as on a first spawn. |
 | `PrimitiveObjectToy.Rotation`, `Scale` | adapted | Return the requested values. Negative (mirrored) scale components are kept exactly: they become a 180° rotation, plus a local X mirror that no primitive shows. The toy's `Transform` holds the encoded rotation and scale, so move such toys through the wrapper. |
-| `LightSourceToy.Intensity`, `Range`, `Color` | supported | |
+| `LightSourceToy.Intensity`, `Range`, `Color` | supported | Values reach the client unchanged, but Carl Mod renders with Unity's built-in pipeline while official SL uses HDRP: 1 to 2 is a normal light on Carl Mod, and intensities tuned for official SL (often 20 to 100) light everything white. |
 | `LightSourceToy.ShadowType` | approximated | Only on/off is synced; any value other than `None` renders as `Soft`. |
 | `LightSourceToy.ShadowStrength`, `Type`, `Shape`, `SpotAngle`, `InnerSpotAngle` | absent | Not synced by Carl Mod's light toy; the light type and shape are fixed by its prefab. |
 | `ShootingTargetToy` (`IsGlobal`, `Create`) | supported | `Create` spawns the first target prefab found, as in official. |
@@ -135,11 +137,11 @@ listens.
 | `PlayerEvents.Left` | supported | `ReferenceHub.OnDestroy`, every non-host hub, before the wrapper is removed. |
 | `PlayerEvents.SendingVoiceMessage` / `ReceivingVoiceMessage` | supported | `VoiceTransceiver.ServerReceiveMessage`. Keeps the fork's mute check (only exact `LocalRegular`/`GlobalRegular` flags block) and its hear-yourself rule. |
 | `PlayerEvents.UpdatingEffect` / `UpdatedEffect` | approximated | `StatusEffectBase.ForceIntensity` on the server. `UpdatedEffect` runs after the effect's enable/disable callbacks instead of before them. If a handler sets `Intensity` to the current value, nothing is synced (the fork returns early). |
-| `PlayerEvents.Hurting` / `Hurt` / `Dying` / `Death` | supported | `PlayerStats.DealDamage`, same order as official: Hurting before `ApplyDamage`, Hurt after it, Dying before `OnAnyPlayerDied`, Death after `KillPlayer` (ragdoll, item drop, spectator role and the fork's deathmatch messages). Cancelling Dying leaves the player alive at 0 HP, as in official. Carl Mod has no spawn-protection damage check in `DealDamage`. |
-| `PlayerEvents.ChangingRole` / `ChangedRole` | approximated | `PlayerRoleManager.ServerSetRole`; cancellation and `NewRole`/`ChangeReason`/`SpawnFlags` changes apply as in official. Carl Mod sends the role to clients on the next frame, so `ChangedRole` runs before clients receive it. |
+| `PlayerEvents.Hurting` / `Hurt` / `Dying` / `Death` | supported | `PlayerStats.DealDamage`, same order as official: Hurting before `ApplyDamage`, Hurt after it, Dying before `OnAnyPlayerDied`, Death after `KillPlayer` (ragdoll, item drop, spectator role and the fork's deathmatch messages). Cancelling Dying leaves the player alive at 0 HP, as in official. Carl Mod has no spawn-protection damage check in `DealDamage`. `DealDamage` is always replaced, also without subscribers: the fork's `KillPlayer` branches into the middle of an instruction when the player is not a spectator after `ServerSetRole(Spectator, Died)` and Harmony cannot patch it, so the replacement runs a corrected copy (ragdoll, item drop unless `death_no_drop`, spectator role, console message, the deathmatch broadcasts, `SpectatorRole.ServerSetData` only for a spectator). |
+| `PlayerEvents.ChangingRole` / `ChangedRole` | approximated | `PlayerRoleManager.ServerSetRole`; cancellation and `NewRole`/`ChangeReason`/`SpawnFlags` changes apply as in official, also on death (`ChangeReason.Died`: the player keeps the old role at 0 HP, or gets the new role). Carl Mod sends the role to clients on the next frame, so `ChangedRole` runs before clients receive it. |
 | `PlayerEvents.Cuffing` / `Cuffed` / `Uncuffing` / `Uncuffed` | supported | `DisarmingHandlers.ServerProcessDisarmMessage`. An SCP releasing a target raises `Uncuffing` with `IsAllowed = false` and `CanUnDetainAsScp = false` and is always refused; the fork then resends the cuff list to that SCP. |
 | `PlayerEvents.ReceivingLoadout` / `ReceivedLoadout` | supported | `InventoryItemProvider.ServerGrantLoadout`. As in official, `InventoryReset` changes are ignored. The fork's deathmatch loadout hook still runs for roles with a defined inventory. |
-| `PlayerEvents.Spawning` / `Spawned` | approximated | The fork positions players from an anonymous `PlayerRoleManager.OnRoleChanged` handler, which only runs when the player already had a role, so a player's very first role raises neither event (it is not repositioned either). Otherwise as official. |
+| `PlayerEvents.Spawning` / `Spawned` | supported | The fork positions players from an anonymous `PlayerRoleManager.OnRoleChanged` handler in `RoleSpawnpointManager`. It runs for every role change after the `None` role a player starts with, including the round-start assignment; only roles with a spawnpoint handler raise the events, as in official. |
 | `PlayerEvents.Jumped` | approximated | `FpcMotor.UpdateGrounded` when the server simulates a requested jump (SCP-939 lunges included). No jump multiplier: `JumpStrength` is the role's jump speed. There is no server-forced jump. |
 | `PlayerEvents.MovementStateChanged` | supported | `FpcSyncData.TryApply` when a client movement message changes the state. |
 | `PlayerEvents.Escaping` / `Escaped` | approximated | `Escape.ServerHandlePlayer`, every frame while an FPC player is inside the escape sphere (radius 12.5 around `Escape.WorldPos`); `EscapeZone` is that sphere's bounding box. `EscapeScenarioType.Custom` does not exist. Respawn tokens for the final scenario are granted after `Escaping`, as the fork grants them. |
@@ -157,7 +159,7 @@ listens.
 
 | Member | State | Notes |
 | --- | --- | --- |
-| `List`, `Dictionary`, `Get`/`TryGet` (hub, GameObject, NetworkIdentity, net ID, command sender) | supported | Dictionary lookups. As official, `List` includes the host; use `ReadyList`/`GetAll`/`Count` for real players and dummies. |
+| `List`, `Dictionary`, `Get`/`TryGet` (hub, GameObject, NetworkIdentity, net ID, command sender) | supported | Dictionary lookups. A command sender resolves through `PlayerCommandSender.ReferenceHub` (official compares user IDs; Carl Mod device IDs are client-supplied and not unique); other senders have no player. As official, `List` includes the host; use `ReadyList`/`GetAll`/`Count` for real players and dummies. |
 | `TryGet(int playerId)`, `TryGet(string userId)` | supported | Player ID through the game's ID dictionary; user ID through a cache with a non-allocating fallback scan. |
 | `Count`, `NonVerifiedCount` | supported | Counted without allocating. |
 | `ConnectionsCount` | supported | `LiteNetLib4MirrorCore.Host.PeersCount`. |
@@ -165,7 +167,7 @@ listens.
 | `IsDummy`, `DummyList` | approximated | Dummies are `ServerDummy.Spawn` hubs (`ServerDummyConnection`). |
 | `UserId`, `IsReady`, `DoNotTrack`, `IsGlobalModerator`, `IsNorthwoodStaff` | adapted | From `CharacterClassManager` (device user ID, instance mode) and `ServerRoles` (`DoNotTrack`, `RaEverywhere`, `Staff`). |
 | `LifeId` | approximated | No role life identifier in the fork; LabAPI assigns a new increasing value on every role initialization. |
-| `MaxHealth` | approximated | Setting it overrides `HealthStat.MaxValue` on the server until the next role change. The client still sizes its health bar to the role's default maximum. |
+| `MaxHealth` | approximated | Setting it overrides `HealthStat.MaxValue` on the server until the next role change; the override is gone before the new role's health is set. The client still sizes its health bar to the role's default maximum. |
 | `MaxHumeShield` | adapted | Read-only: the fork derives it from the role's shield-over-health curve. |
 | `ArtificialHealth`, `MaxArtificialHealth` | supported | Clears the AHP processes / sets the AHP maximum directly. |
 | `Position`, `Move` | supported | Server position override. |
@@ -173,7 +175,7 @@ listens.
 | `CachedRoom` | approximated | Resolved on each call with the same lookup as `RoomChanged` (grid cell, then a raycast up and down). |
 | `GetRoleVisibilityFor` | approximated | Applies `IObfuscatedRole` only; the fork has no distance or visibility based role masking. |
 | `AddItem(ItemType)`, `GiveCandy(CandyKindID)`, `GiveRandomCandy()` | adapted | No `ItemAddReason` in the fork, so the reason parameter is absent. Candy follows the fork's RA candy command (adds a bag when missing). |
-| `DropAmmo` | supported | Replays the fork's ammo drop and returns the spawned pickups (the fork method returns only a bool). |
+| `DropAmmo` | supported | Runs the fork's ammo drop with `DroppingAmmo` / `DroppedAmmo`, like a game drop, and returns the spawned pickups (the fork method returns only a bool). |
 | `Gravity`, `Scale`, `Jump`, `Emotion`, `IsSpectatable` | absent | No per-player gravity, player scale, forced jump, emotions or spectatable-visibility manager in the fork. |
 
 ### Ragdoll wrapper
@@ -261,7 +263,7 @@ and leaves the game method untouched otherwise.
 | `PlayerEvents.PickingUpAmmo` / `PickedUpAmmo` | supported | `AmmoSearchCompletor.Complete`; `AmmoAmount` changes are applied. |
 | `PlayerEvents.PickingUpArmor` / `PickedUpArmor` | supported | `ArmorSearchCompletor.Complete`. |
 | `PlayerEvents.PickingUpScp330` / `PickedUpScp330` | supported | `Scp330SearchCompletor.Complete`. |
-| `PlayerEvents.ThrowingProjectile` / `ThrewProjectile` | approximated | `ThrowableItem.ServerProcessThrowConfirmation`; `ProjectileSettings`/`FullForce` changes are applied. The fork has no throw cancellation message: a denied throw resets the server throw state, plays the cancel cue for other players and holsters the item (it stays in the inventory). |
+| `PlayerEvents.ThrowingProjectile` / `ThrewProjectile` | approximated | `ThrowableItem.ServerProcessThrowConfirmation`; `ProjectileSettings`/`FullForce` changes are applied. The fork has no throw cancellation message: a denied throw resets the server throw state, plays the cancel cue for other players and holsters the item (it stays in the inventory). A confirmation for an item that was already thrown raises nothing, so a denial never undoes a completed throw. |
 | `PlayerEvents.InspectingItem` / `InspectedItem` | approximated | Jailbird (`JailbirdItem.ServerProcessCmd`) and firearms (`FirearmBasicMessagesHandler.ServerRequestReceived`, `Inspect` request). Firearm inspection is client-side in the fork: denying only stops the relay to spectators. The fork Micro-HID has no inspect. |
 | `PlayerEvents.InspectingKeycard` / `InspectedKeycard` | absent | Carl Mod keycards cannot be inspected. |
 | `PlayerEvents.UsingItem` | supported | `UsableItemsController.ServerReceivedStatus` (start request) and `Scp330NetworkHandler.ServerSelectMessageReceived` (candy selection). |
@@ -372,7 +374,7 @@ the events has subscribers; otherwise the game method runs untouched. Sequence e
 | `LockerChamber.PlayDeniedSound`, `PedestalLocker.PlayDeniedSound`, `Generator.PlayerDeniedBeep` | adapted | No parameter: the fork's denied RPCs carry no permission flags. |
 | `ExperimentalWeaponLocker`, `MicroPedestal` | absent | No such structures in Carl Mod. |
 | `Generator` | approximated | `TotalActivationTime`/`TotalDeactivationTime` change the server timers only (not SyncVars in the fork, the client gauge keeps its prefab value). `RemainingTime` set moves the countdown. |
-| `Window` | supported | Cache from `BreakableWindow.Awake` plus a destroy notifier. |
+| `Window` | supported | Added from the window's `Start` (a server-side component added in `BreakableWindow.Awake`, the fork window's only lifecycle method) and removed by a destroy notifier. |
 | `Hazard`, `SinkholeHazard`, `TantrumHazard`, `DecayableHazard` | adapted | Cache from `EnvironmentalHazard.Start/OnDestroy`. `IsActive`, `DecaySpeed` and `LiveDuration` are read-only in the fork. A spawned sinkhole is still subject to the server's `sinkhole_spawn_chance`. |
 | `AmnesticCloudHazard` | approximated | `State` is the fork's `CloudState`. `Spawn` derives `MaxDistance` from the hold-time curve; setting `Owner` to an SCP-939 links the cloud to its abilities. |
 | `Tesla` | approximated | Cache from `TeslaGate.Start` plus a destroy notifier. The fork never sets `TeslaGate.Room`, so `Room` is looked up from the position. |
@@ -402,7 +404,7 @@ Patches live in `src/LabApi/Events/Patches/Round/` (namespace `LabApi.Events.Pat
 | `ServerEvents.RoundEnding` | supported | After the conditions check, with the fork's leading-team rules (no flamingos). Cancelling keeps the round running and re-checks on the next cycle. `LeadingTeam` is applied. |
 | `ServerEvents.RoundEnded` | supported | 1.5 s after `RoundEnding`, before the summary RPC; `ShowSummary = false` skips the summary screen. |
 | `ServerEvents.WaveTeamSelecting` / `WaveTeamSelected` | approximated | At `RespawnManager.Update` team selection (replaces the `DmFun.ChooseTeam` call), also from `RespawnWave.InitiateRespawn`. `Wave` is the fork's `SpawnableTeamHandlerBase` (use `RespawnWave.Base`). Cancelling restarts the respawn cooldown instead of retrying every frame. Not raised by `InstantRespawn` / RA force spawns (as officially). |
-| `ServerEvents.WaveRespawning` / `WaveRespawned` | supported | `RespawnManager.Spawn` is replaced with the same steps while either event has subscribers. `Roles` edits are applied; cancelling spawns nobody and keeps tokens. Deathmatch direct respawns (`DmDirectRespawn`, not a wave) do not raise them. |
+| `ServerEvents.WaveRespawning` / `WaveRespawned` | supported | `RespawnManager.Spawn` is replaced with the same steps while either event has subscribers. `Roles` edits are applied; cancelling spawns nobody and keeps tokens. Not raised when nobody can spawn (for example a forced spawn without spectators), as officially. Deathmatch direct respawns (`DmDirectRespawn`, not a wave) do not raise them. |
 | `ServerEvents.CassieAnnouncing` / `CassieAnnounced` | supported | Around `RespawnEffectsController.PlayCassieAnnouncement` (the LabAPI 1.0 site; SL 14.2.7 no longer raises them). Covers every server announcement, including glitched SCP terminations and MTF entrances. `CustomSubtitles` is sent in the SL 13.x translated format (`subtitle<size=0> words </size><split>`) with subtitles on. |
 | `ServerEvents.CassieQueuingScpTermination` / `CassieQueuedScpTermination` | supported | Prefix of `NineTailedFoxAnnouncer.AnnounceScpTermination`, only when a new termination is queued; deaths merged into a waiting announcement (same text) raise nothing. |
 | `ServerEvents.LczDecontaminationAnnounced` | supported | After `DecontaminationController.UpdateTime` advances a non-final phase. |
@@ -423,7 +425,7 @@ Patches live in `src/LabApi/Events/Patches/Round/` (namespace `LabApi.Events.Pat
 | `Round.ExtraTargets` | absent | No SCP target counter. `ScpTargetsAmount` counts Foundation staff and enemies only. |
 | `Announcer` / obsolete `Cassie` | approximated | Backed by `NineTailedFoxAnnouncer`. `IsSpeaking` reads the host's local queue. `AllLines` is `NineTailedFoxAnnouncer.VoiceLine[]`; `CollectionNames`/`IsValid` use voice line names. `CalculateDuration(string, bool, float)` is the fork's calculation (not obsolete). `Message`: `priority` ignored (clients play in arrival order), `glitchScale` adds `.G`/`JAM_` words with the official chances (doubled after detonation), custom subtitles as in `CassieAnnouncing`. `ConvertNumber` uses the fork's number words. |
 | `Announcer.LineDatabase`, `Message(CassieTtsPayload, ...)`, `CalculateDuration(..., CassiePlaybackModifiers ...)` | absent | No 14.2 CASSIE line database, payloads or playback modifiers. |
-| `Decontamination` | approximated | `Offset` shifts the synchronized round start time because the fork does not sync its time offset; an offset set before the timer starts is applied when it starts. |
+| `Decontamination` | approximated | `Offset` shifts the synchronized round start time because the fork does not sync its time offset; an offset set before the timer starts is applied when it starts. The start time is network time since the server started and must stay above 0 (the fork stops the timer otherwise), so the part of a positive offset beyond that goes to the controller's server-only `TimeOffset`: server phases follow the full offset, client timers and announcement audio lag by that part. |
 | `Decontamination.ElevatorsText` | absent | The elevator text is client-side and not synchronized. |
 | `Warhead` | approximated | `WarheadScenarioType` (`Start`, `Resume`) is a LabAPI enum mapped to `AlphaWarheadSyncInfo.ResumeScenario`. `IsAuthorized` is the outside panel's `keycardEntered`; `BaseNukesitePanel` is `AlphaWarheadOutsitePanel.nukeside`. |
 | `Warhead.ForceCountdownToggle`, `DeadManSwitchRemaining`, `DeadManSwitchMaxTime`, `DeadmanSwitchScenario` | absent | No Deadman Switch. |
@@ -464,7 +466,7 @@ feed back as in official LabAPI.
 | `Scp049Events.StartingResurrection` | supported | When `CanResurrect` stays false the fork's specific error code is shown instead of always `TargetInvalid`. |
 | `Scp049Events.ResurrectingBody` / `ResurrectedBody` | supported | Fork values (100 hume shield for sense kills, always `Scp0492`). Changing `Target` revives that player. |
 | `Scp0492Events.StartingConsumingCorpse` | supported | `Error` uses the fork's `ConsumeError` values. |
-| `Scp0492Events.StartedConsumingCorpse` | supported | |
+| `Scp0492Events.StartedConsumingCorpse` | supported | Observed at the server dispatch of subroutine commands (`SubroutineMessage.Apply`): the fork does not override `ServerProcessCmd`, and the shared `RagdollAbilityBase<T>` method is not patched. |
 | `Scp0492Events.ConsumingCorpse` / `ConsumedCorpse` | supported | `HealAmount`, `AddToConsumedRagdollList`, `HealIfAlreadyConsumed` are applied. Not raised when the ragdoll vanished before completion (the fork heals nothing then). |
 
 ### SCP-079
@@ -504,7 +506,7 @@ pocket dimension.
 | --- | --- | --- |
 | `TeleportingPlayer` / `TeleportedPlayer` | approximated | Raised for every successful hit, before the damage. Cancelling cancels the whole hit (damage, vigor reward, capture); there is no separate first-hit corrosion stage. |
 | `ChangingStalkMode` / `ChangedStalkMode` | approximated | Stalk is the 13.x submerged stalk (`Scp106StalkAbility.IsActive`). Covers toggling and the automatic exit at zero vigor; the role reset raises nothing. |
-| `ChangingSubmersionStatus` / `ChangedSubmersionStatus` | approximated | Raised when the sinkhole state flips (stalk or Hunter's Atlas). The fork re-evaluates every frame, so a cancelled change is raised again next frame. |
+| `ChangingSubmersionStatus` / `ChangedSubmersionStatus` | approximated | The fork derives the sinkhole state on the server and every client from the stalk and Hunter's Atlas abilities, so `ChangingSubmersionStatus` is raised where an ability changes its submerged state (stalk toggle and automatic exit, Hunter's Atlas submerge and emerge) when that flips the sinkhole state; cancelling refuses the ability change. Stalk: after `ChangingStalkMode`, and a refusal also refuses the stalk. Hunter's Atlas: teleport and emerge are one step in the fork, so a refused emerge keeps SCP-106 submerged at its origin and is raised again every frame; the teleport happens once the emerge is allowed. `ChangedSubmersionStatus` reports the sinkhole state change. |
 | `ChangingVigor` / `ChangedVigor` | supported | Raised for attack reward, Hunter's Atlas cost, stalk drain and regeneration (per frame while changing, as official). `Value` is stored as given; reads are clamped to 0-1 as in the fork. |
 | `UsingHunterAtlas` / `UsedHunterAtlas` | supported | `DestinationPosition` is applied. |
 
@@ -523,9 +525,79 @@ pocket dimension.
 
 | Event | State | Notes |
 | --- | --- | --- |
-| `Attacking` / `Attacked` (claw) | approximated | The fork claw hits every targeted player in range for 40 each (no primary/secondary split). One event per player; `Damage` and `Target` are applied. |
+| `Attacking` / `Attacked` (claw) | approximated | The fork claw hits every targeted player in range for 40 each (no primary/secondary split). One event per player; `Damage` and `Target` are applied. Hooked on the 939-only `Scp939ClawAbility.ServerProcessCmd`: the shared `ScpAttackAbilityBase<T>` method is not patched, so SCP-049-2 attacks are unaffected. |
 | `Attacking` / `Attacked` (lunge) | supported | Primary 120, secondary 30. A cancelled secondary hit only skips that player (official aborts the rest of the lunge). |
-| `Lunging` / `Lunged` | supported | Role reset to `None` raises nothing. |
+| `Lunging` / `Lunged` | supported | Cancelling the lunge trigger also cancels its hit. Role reset to `None` raises nothing. |
 | `Focused` | supported | |
 | `CreatingAmnesticCloud` / `CreatedAmnesticCloud` | supported | |
 | `MimickingEnvironment` / `MimickedEnvironment` | approximated | The fork picks a sound by (category, option). `SelectedSequence` / `PlayedSequence` is the category-major flat index into `EnvironmentalMimicry.Categories`; setting it selects that pair. |
+
+## ProjectMER
+
+`src/ProjectMER` is ProjectMER 2025.11.2.1 (MapEditorReborn, LabAPI edition) built on this port. ProjectMER maps
+(`.yml`) and schematics (`.json`) load unchanged. The stock Carl Mod client has only primitive, light and
+shooting-target toys and no toy parenting, so the types below are adapted or absent. Absent types stay in the loaded
+data: a load logs one warning per type with a count, and saving a map keeps their entries. Installation, commands and
+the mobile options are in [src/ProjectMER/README.md](../src/ProjectMER/README.md).
+
+### Map object types
+
+| YAML key | State | Notes |
+| --- | --- | --- |
+| `primitives` | adapted | Static toys. `PrimitiveFlags` are encoded in the sign of the `Scale` SyncVar and the spawn transform, exact for every flag set and primitive type (one-sided Quad and Plane included). `None` is a server-only object that indicators and the tool gun still find; `Collidable` alone spawns with alpha 0 or is skipped (`invisible_collider_mode`). |
+| `lights` | adapted | Intensity (times `light_intensity_scale`, 0.025 by default, because ProjectMER content uses official SL's HDRP intensities), range, color and shadows on/off are applied. `LightType`, `Shape`, spot angles and shadow strength are kept but not applied (spot lights become point lights). Shadows stay off unless `allow_light_shadows`; at most `max_lights` lights. |
+| `doors` | adapted | LCZ, HCZ and EZ breakable doors. `RequiredPermissions` uses `KeycardPermissions` (same flag names; `All` means every flag). Bulk doors and gates are skipped. Moving a spawned door respawns it. Every door carries a `NetIdWaypoint`, and player, ragdoll and pickup positions are sent relative to waypoint ids that each side numbers by netId. The port keeps the server's numbering equal to the clients' (`Features/Mobile/MerWaypoints.cs`): a new door's waypoint starts only once the door has a netId, the server renumbers after every door spawn or respawn, and when a door is destroyed while a newer MER door remains, that door is respawned so connected and later-joining clients number alike. A door whose waypoint started without a netId would be numbered ahead of every vanilla door and shift every id, and clients would place teleported players and new pickups at another door. A facility holds at most 224 door waypoints (ids are bytes from 32); further MER doors are skipped with a warning. |
+| `workstations` | adapted | Position and yaw quantized to 5.625°; pitch and roll are lost. |
+| `item_spawnpoints` | adapted | Firearms use the 13.x firearm state. `Lantern` reads as `Flashlight`; other items missing from Carl Mod are skipped. Pickups are separate objects, not children of the spawnpoint. |
+| `player_spawnpoints` | supported | Applied through LabAPI `PlayerSpawning`. |
+| `shooting_targets` | supported | Sport, D-class and binary targets. As in ProjectMER, the target buttons do nothing on MER targets (one of them destroys the target). |
+| `teleports` | supported | Server-side trigger volumes. |
+| `lockers` | adapted | 12 of 16 locker types; SCP-1576, Anti-SCP-207 and SCP-1344 pedestals and the experimental weapon locker are skipped. Chamber permissions use `KeycardPermissions`. Position and yaw only. |
+| `schematics` | adapted | See below. |
+| `triangles` | absent | ProjectMER draws a triangle with quads under sheared parents; a toy without a parent cannot shear. |
+| `capybaras`, `texts`, `interactables`, `scp079_cameras`, `waypoints` | absent | The client has no such toys. A locked schematic pickup (`ButtonInteracted`) is the closest replacement for an interactable. |
+
+Maps of the EXILED-based MapEditorReborn for SL 13.2 use another format and do not load.
+
+### Schematic block types
+
+| Block type | State | Notes |
+| --- | --- | --- |
+| 0 Empty | adapted | A server-side anchor GameObject; nothing is networked (ProjectMER networked an invisible primitive). |
+| 1 Primitive | adapted | As map primitives, spawned at their world transform. Schematics exported without `PrimitiveFlags` keep ProjectMER's rule (`Scale.x >= 0` means collidable). Blocks that render nothing (no flags, alpha 0 without collider, zero scale) are anchors only (`optimize_schematics`). With `merge_blocks`, static duplicates are removed and static cubes and quads are merged (below). |
+| 2 Light | adapted | As map lights, and at most `max_lights_per_schematic` per schematic (strongest first). |
+| 3 Pickup | supported | `Chance` and `Locked` (button, `ButtonInteracted`) work. Item names (MapEditorReborn 13.2) and numbers are accepted; the 14.x keycard names `KeycardMTFPrivate/Operative/Captain` map to the fork's NTF keycards. |
+| 4 Workstation | adapted | Position and yaw only. |
+| 5 Schematic, 6 Teleport, 7 Locker | absent | ProjectMER does not build them either; the anchor is kept. |
+| 8 Text, 9 Interactable, 10 Waypoint, 11 Triangle | absent | No such toys; the anchor is kept for child blocks. |
+| `AnimatorName` (animator bundles) | supported | The animated subtree spawns as dynamic toys that follow their anchors, synced every `dynamic_toy_sync_interval`. A bundle built for another Unity version does not load; the schematic then stays static. |
+| `<name>-Rigidbodies.json` | supported | The rigidbody goes on the block's toy (or pickup); its child blocks follow it. |
+| `"Static"` property | adapted | Blocks are static toys unless they are in an animated or physics subtree (`static_by_default`). `"Static": false` only counts with `honor_static_property`. |
+
+**Duplicates and merging** (`merge_blocks`, default `Maps`: schematics placed by maps, `mp create` and the tool gun).
+Static primitives identical to an earlier block (type, transform, colour, flags) are dropped. Static cubes that share
+a whole face, and coplanar quads facing the same way that share a whole edge, are merged when they have the same
+rotation (up to the cube's or quad's symmetry), colour, flags and transparency class. Partly transparent blocks and
+blocks under sheared or mirrored parents are left alone. A merged block covers exactly the space of the blocks it
+replaces; those keep their anchor (name, transform, `AttachedBlocks` entry) without a toy. `mp optimize <schematic>`
+reports every step.
+
+### Schematic API and events
+
+| Item | State | Notes |
+| --- | --- | --- |
+| Schematic root | adapted | A plain server GameObject with `SchematicObject`; blocks are not its children. Each networked block has a `MerBlockLink` with its schematic and block id. |
+| `ObjectSpawner.SpawnSchematic`, `SerializableSchematic.SpawnOrUpdateObject` | adapted | Return the root at once. The file is parsed and planned on a worker thread; anchors and toys are built in later frames within `spawn_time_budget_ms` and networked through the spawn queue. |
+| `SchematicObject.AttachedBlocks`, `NetworkIdentities`, `AdminToyBases`, `AnimationController` | adapted | Finish the build synchronously first (`EnsureSpawned`). `AttachedBlocks` holds the anchors and the networked objects. |
+| `SchematicObject.Position`, `Rotation`, `Scale` | adapted | Static blocks are resent in place, at most once per 0.25 s. |
+| `SchematicObject.IsStatic` | adapted | `false` networks merged and duplicate blocks individually again, then makes every block a dynamic toy following its anchor. |
+| `SchematicObject.Data`, `Plan`, `IsSpawned`, `IsBuilt`, `EnsureSpawned`, `NetworkedCount`, `CurrentAdminToyBases`, `CurrentNetworkIdentities`, `SpawnGroup` | adapted | Port additions. `Data` and `Plan` wait for the worker if needed; the `Current*` lists do not finish the build. |
+| `Schematic.SchematicSpawning` | adapted | Raised before the build with a copy of the data. If the file was not parsed yet, it is raised when the worker has parsed it, and cancelling it destroys the root returned earlier. |
+| `Schematic.SchematicSpawned` | adapted | Raised when every server object of the schematic exists, a few frames after the spawn call (ProjectMER raised it during the call). |
+| `Schematic.SchematicBuilt` | adapted | Port addition: raised when every networked block has been spawned for the players. |
+| `Schematic.SchematicDestroyed`, `ButtonInteracted` | supported | `SchematicDestroyed` is raised only for schematics that raised `SchematicSpawned`. |
+| `MapUtils.GetSchematicDataByName` | adapted | Newtonsoft.Json instead of Utf8Json, same value shapes in `Properties`. Results are cached until the file changes and shared: treat them as read-only. |
+| `ObjectSpawner.SpawnTriangle` | absent | Returns `null` with a warning. |
+| Tool gun schematic dropdown (server-specific settings) | absent | Carl Mod has no server-specific settings; `mp tg schematic <name or index>` chooses the schematic. |
+| `ExperimentalWeaponLockerGlobalLimitsPatch` | absent | Carl Mod has no experimental weapon locker. |
+| `AlphaWarheadCanBeDetonatedFix` | adapted | Behind `warhead_spares_outside_rooms`. Carl Mod kills everything below y = 900; the patch spares positions below that height that are outside every room (MER-built areas), except lifts. |

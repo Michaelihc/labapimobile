@@ -199,7 +199,19 @@ internal static class WaveSpawnPatch
             candidates.RemoveRange(maxWaveSize, candidates.Count - maxWaveSize);
         }
 
-        if (candidates.Count > 0 && UnitNamingRule.TryGetNamingRule(team, out UnitNamingRule rule))
+        if (candidates.Count == 0)
+        {
+            // Official WaveSpawner.SpawnWave returns before the events when nobody can spawn; the fork spawns nobody,
+            // reports an empty wave and clears the selected team.
+            ListPool<ReferenceHub>.Shared.Return(candidates);
+            List<ReferenceHub> none = ListPool<ReferenceHub>.Shared.Rent();
+            (ServerOnRespawnedField.GetValue(null) as Action<SpawnableTeamType, List<ReferenceHub>>)?.Invoke(team, none);
+            ListPool<ReferenceHub>.Shared.Return(none);
+            manager.NextKnownTeam = SpawnableTeamType.None;
+            return;
+        }
+
+        if (UnitNamingRule.TryGetNamingRule(team, out UnitNamingRule rule))
         {
             UnitNameMessageHandler.SendNew(team, rule);
         }
