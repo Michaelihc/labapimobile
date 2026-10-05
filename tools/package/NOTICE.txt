@@ -1,5 +1,5 @@
 LabAPI-Mobile {{VERSION}}
-Built from LabAPIMobile commit {{COMMIT}}.
+Built from labapimobile commit {{COMMIT}}.
 Source: {{SOURCE}}
 
 Third-party components and licences
@@ -11,7 +11,7 @@ framework\LabApi.dll
   LabAPI is licensed under the GNU Lesser General Public License version 3
   (licenses\LGPL-3.0.txt, which supplements the GNU General Public License
   version 3 in licenses\GPL-3.0.txt). The modified source code is in the
-  LabAPIMobile repository above, directories src/LabApi and
+  labapimobile repository above, directories src/LabApi and
   src/LabApi.SourceGenerators, at the commit above. You may replace
   LabApi.dll with your own build of that source: rebuild it, then run the
   installer with the folder containing your LabApi.dll and 0Harmony.dll as
@@ -26,17 +26,8 @@ Mono.Cecil.dll
   unmodified, used by the installer only. MIT License,
   licenses\Mono.Cecil-MIT.txt.
 
-plugins\ProjectMER.dll
-  A port of ProjectMER 2025.11.2.1 (MapEditorReborn, LabAPI edition) by
-  Michal78900, Killers0992, Nao and contributors
-  (https://github.com/Michal78900/ProjectMER) to LabAPI-Mobile. The
-  ProjectMER repository publishes no licence file. Its predecessor
-  MapEditorReborn (https://github.com/Michal78900/MapEditorReborn) states
-  "Licensed under the CC BY-SA 3.0 license" in its source file headers.
-  The ported source is in src/ProjectMER of the LabAPIMobile repository.
-
 LabApiMobile.Installer.exe
-  Part of LabAPIMobile; source in src/Installer.
+  Part of labapimobile; source in src/Installer.
 
 SCP: Secret Laboratory is a game by Northwood Studios. Carl Mod is a
 third-party mobile version of it. This package contains no game files.

@@ -14,22 +14,30 @@ IL2CPP and is never patched. Plugins may use only content the stock Carl Mod cli
 - `src/LabApi.SourceGenerators/` — official generators, plus a `Has<Event>` subscriber check per event.
 - `src/Installer/` — Cecil installer: copies `LabApi.dll`/`0Harmony.dll` and injects one
   `PluginLoader.Initialize()` call into `ServerStatic.Awake` (where official SL calls it).
-- `src/ProjectMER/` — MapEditorReborn (LabAPI edition) port.
 - `docs/compatibility.md` — what is supported, adapted or absent compared with official LabAPI.
-- `tools/` — server extraction, test-server and Android emulator scripts. See `docs/testing.md`.
+- `docs/testing.md` — local test servers, the Android emulator with the real client, frame-time measurement.
+- `tools/` — server extraction, test-server and Android emulator scripts.
+- `tools/EventProbe/` — dev plugin that logs every LabAPI event and has commands that drive client tests.
+- `tools/Package.ps1`, `tools/package/` — framework-only release archive (installer, `LabApi.dll`,
+  `0Harmony.dll`, `INSTALL.txt`, `NOTICE.txt`, licence texts) in `dist/`.
+- `README.md` / `README.zh-CN.md` — English and Simplified Chinese READMEs; keep both in sync.
 - `.runtime/` (ignored) — extracted server (`server-original`), test servers, logs, captures.
+- `dist/` (ignored) — package output.
+
+The ProjectMER port lives in its own repository (https://github.com/Michaelihc/projectmer-mobile); a local
+checkout may sit next to this one as `../projectmer-mobile/`. It builds against this repository's `LabApi.dll`.
 
 ## Reference inputs
 
-- `.refereces/` contains the supplied server ZIP and two APKs. Treat them as original reference inputs;
+- `.refereces/` (ignored, not published) contains the supplied server ZIP and two APKs. Treat them as original reference inputs;
   write patched assemblies, rebuilt APKs and extracted files to separate output directories.
-- `.refereces/scpsl-metarepo/` is a junction to `<scpsl-plugins-metarepo>`.
+- `.refereces/scpsl-metarepo/` is a local junction to a `scpsl-plugins-metarepo` checkout; it is not published.
   It is external reference material. Do not edit through the junction without explicit authorization.
   Read its `AGENTS.md` and `.references/AGENTS.md` before researching APIs or native behavior.
 - Official LabAPI source: `.refereces/scpsl-metarepo/.references/LabAPI/LabApi/`.
 - Official SL 14.2.7 server decompilation (shows where the game raises each LabAPI event; grep
   `PlayerEvents.OnHurting(` etc.): `.refereces/scpsl-metarepo/.references/Decompiled/DedicatedServer/Assembly-CSharp/`.
-- Carl Mod analysis workspace `../scpsl-mobile-analysis-20261005/`:
+- Carl Mod analysis workspace, a local sibling checkout at `../scpsl-mobile-analysis-20261005/` (not published):
   - `decompiled/server/` — fork Assembly-CSharp; `decompiled/extras/` — CarlModExtras;
     `decompiled/commands/` — CommandSystem.Core; MEC `Timing` lives in `DigitalDust.dll` in this fork.
   - `references/EXILED-8.2.1-sl13.2/` — EXILED for SL 13.2. Its `Exiled.Events/Patches` target game code

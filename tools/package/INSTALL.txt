@@ -3,7 +3,10 @@ LabAPI-Mobile {{VERSION}} for the Carl Mod SCP: Secret Laboratory server
 
 LabAPI-Mobile is Northwood's LabAPI plugin framework ported to the Carl Mod
 mobile server. It runs on the server only: players keep the stock Carl Mod
-client. ProjectMER (the map editor) is included as a plugin.
+client.
+
+This archive contains the framework only. Plugins are installed separately
+(see "Plugins" below).
 
 Requirements
 ------------
@@ -59,24 +62,27 @@ start. It is separate from the "LabAPI" folder of the official game.
   LabApi-<port>.yml      LabAPI's own settings
 
 
-ProjectMER
-----------
+Plugins
+-------
+LabAPI plugins built for LabAPI-Mobile, such as the ProjectMER map editor
+(https://github.com/Michaelihc/projectmer-mobile), are DLL files:
+
 1. Install LabAPI-Mobile and start the server once, so the data folder exists.
-2. Stop the server and copy plugins\ProjectMER.dll from this archive into
+2. Stop the server and copy the plugin DLL into
 
      <AppData>\SCP Secret Laboratory\LabAPI-Mobile\plugins\global\
 
-3. Start the server. The log shows "ProjectMER" being enabled, and the plugin
-   creates LabAPI-Mobile\configs\ProjectMER\Maps (maps, <name>.yml) and
-   LabAPI-Mobile\configs\ProjectMER\Schematics (one folder per schematic:
-   <name>\<name>.json).
-4. Grant the Remote Admin commands in LabAPI-Mobile\configs\permissions.yml,
-   for example "mpr.*" for a group, then use "mp" in the Remote Admin console
-   ("mp load <map>", "mp list"...). In the phone's client console, type
-   commands with a leading slash: /mp list
+   to load it on every server port, or into plugins\<port>\ (for example
+   plugins\7777\) to load it on one port only. Libraries a plugin needs go
+   into dependencies\global\ or dependencies\<port>\.
+3. Start the server. The log lists the loaded plugins. Plugin configs are
+   created under LabAPI-Mobile\configs\.
 
-Phones render every networked object. Keep maps small: about 150 visible
-primitives at a time is a good budget. "mp stats" shows the counts.
+Plugins built for the official game's LabAPI must be rebuilt against this
+LabApi.dll; see the source repository named in NOTICE.txt.
+
+Phones render every networked object, so plugins that spawn many objects
+(large maps, for example) cost frame rate on low-end devices.
 
 
 Uninstall
@@ -86,13 +92,12 @@ Stop the server and run:
   LabApiMobile.Installer.exe "C:\path\to\server" --uninstall
 
 This restores the original Assembly-CSharp.dll, deletes the backup and removes
-LabApi.dll and 0Harmony.dll. The LabAPI-Mobile data folder (plugins, configs,
-maps) is kept; delete it yourself if you no longer need it.
+LabApi.dll and 0Harmony.dll. The LabAPI-Mobile data folder (plugins, configs)
+is kept; delete it yourself if you no longer need it.
 
 
 Contents
 --------
   LabApiMobile.Installer.exe (+ .config, Mono.Cecil.dll)   the installer
   framework\    LabApi.dll, 0Harmony.dll (installed into Carl Mod_Data\Managed)
-  plugins\      ProjectMER.dll
   licenses\     licence texts; see NOTICE.txt

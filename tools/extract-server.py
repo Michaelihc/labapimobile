@@ -1,12 +1,23 @@
-"""Extract the reference server ZIP into .runtime/server-original (skips mono.msi and .bak snapshots)."""
-import os
-import sys
+"""Extract the Carl Mod server ZIP into .runtime/server-original (skips mono.msi and .bak snapshots).
+
+usage: python tools/extract-server.py [--zip <server.zip>] [<destination>]
+
+Without --zip, the script uses the server ZIP in .refereces/ (004vser_*.zip). The archive's single top-level
+folder is stripped, so <destination> receives "Carl Mod.exe" and "Carl Mod_Data" directly.
+"""
+import argparse
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = next((ROOT / '.refereces').glob('004vser_*.zip'))
-DST = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / '.runtime' / 'server-original'
+parser = argparse.ArgumentParser(description='Extract the Carl Mod server ZIP.')
+parser.add_argument('--zip', type=Path, help='server ZIP (default: .refereces/004vser_*.zip)')
+parser.add_argument('destination', type=Path, nargs='?', default=ROOT / '.runtime' / 'server-original')
+args = parser.parse_args()
+SRC = args.zip or next((ROOT / '.refereces').glob('004vser_*.zip'), None)
+if SRC is None or not SRC.is_file():
+    parser.error('server ZIP not found; pass --zip <path to the Carl Mod server ZIP>')
+DST = args.destination
 
 DST.mkdir(parents=True, exist_ok=True)
 count = 0
