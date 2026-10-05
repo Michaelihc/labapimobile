@@ -6,5 +6,7 @@
     <Nullable>enable</Nullable>
     <Deterministic>true</Deterministic>
     <DebugType>portable</DebugType>
+    <!-- Keep the checkout location out of PDBs and stack traces. -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))=/_/</PathMap>
   </PropertyGroup>
 </Project>
