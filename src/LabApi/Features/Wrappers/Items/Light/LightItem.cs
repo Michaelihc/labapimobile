@@ -1,13 +1,18 @@
-﻿using InventorySystem.Items.ToggleableLights;
+﻿using InventorySystem.Items.Flashlight;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using Utils.Networking;
+using ToggleableLightItemBase = InventorySystem.Items.Flashlight.FlashlightItem;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
-/// The wrapper representing <see cref="ToggleableLightItemBase"/>.
+/// The wrapper representing toggleable light items.
 /// </summary>
+/// <remarks>
+/// The Carl Mod build has no <c>ToggleableLightItemBase</c>; the flashlight is its only toggleable light, so this wrapper
+/// wraps <see cref="ToggleableLightItemBase">InventorySystem.Items.Flashlight.FlashlightItem</see>.
+/// </remarks>
 public class LightItem : Item
 {
     /// <summary>
@@ -64,6 +69,11 @@ public class LightItem : Item
         get => Base.IsEmittingLight;
         set
         {
+            if (Base.IsEmittingLight == value)
+            {
+                return;
+            }
+
             new FlashlightNetworkHandler.FlashlightMessage(Serial, value).SendToAuthenticated();
             Base.IsEmittingLight = value;
         }

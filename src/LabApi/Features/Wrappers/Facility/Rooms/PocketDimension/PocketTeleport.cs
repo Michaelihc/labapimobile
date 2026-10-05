@@ -1,4 +1,5 @@
 ﻿using Generators;
+using MapGeneration;
 using Mirror;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -48,8 +49,25 @@ public class PocketTeleport
     [InitializeWrapper]
     internal static void Initialize()
     {
-        PocketDimensionTeleport.OnAdded += OnAdded;
-        PocketDimensionTeleport.OnRemoved += OnRemoved;
+        // Carl Mod has no PocketDimensionTeleport.OnAdded/OnRemoved; teleports are collected after map generation
+        // and removed through a destroy notifier.
+        Dictionary.Clear();
+        SeedSynchronizer.OnMapGenerated += OnMapGenerated;
+    }
+
+    private static void OnMapGenerated()
+    {
+        try
+        {
+            foreach (PocketDimensionTeleport teleport in Object.FindObjectsOfType<PocketDimensionTeleport>())
+            {
+                OnAdded(teleport);
+            }
+        }
+        catch (System.Exception e)
+        {
+            Console.Logger.Error($"Failed to collect pocket dimension teleports: {e}");
+        }
     }
 
     /// <summary>
@@ -80,6 +98,7 @@ public class PocketTeleport
     internal PocketTeleport(PocketDimensionTeleport pocketDimensionTeleport)
     {
         Dictionary.Add(pocketDimensionTeleport, this);
+        LabApi.Events.Patches.Internal.FacilityDestroyNotifier.Attach(pocketDimensionTeleport.gameObject, pocketDimensionTeleport, static x => OnRemoved((PocketDimensionTeleport)x));
         Base = pocketDimensionTeleport;
         Collider = Base.GetComponent<SphereCollider>();
     }

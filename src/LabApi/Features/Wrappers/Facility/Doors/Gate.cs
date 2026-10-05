@@ -63,11 +63,7 @@ public class Gate : Door
     /// <summary>
     /// Gets or sets whether SCP-106 can pass through the door when its not closed and locked.
     /// </summary>
-    public bool Is106Passable
-    {
-        get => Base.IsScp106Passable;
-        set => Base.IsScp106Passable = value;
-    }
+    public bool Is106Passable => Base.IsScp106Passable;
 
     /// <summary>
     /// Try pry the gate with the specified player.

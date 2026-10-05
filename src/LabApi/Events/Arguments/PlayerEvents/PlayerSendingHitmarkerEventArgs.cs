@@ -1,4 +1,4 @@
-﻿using LabApi.Events.Arguments.Interfaces;
+using LabApi.Events.Arguments.Interfaces;
 using LabApi.Features.Wrappers;
 using System;
 
@@ -7,6 +7,9 @@ namespace LabApi.Events.Arguments.PlayerEvents;
 /// <summary>
 /// Represents the arguments for the <see cref="Handlers.PlayerEvents.SendingHitmarker"/> event.
 /// </summary>
+/// <remarks>
+/// The Carl Mod hitmarker message carries only a size, so the official <c>PlayAudio</c> and <c>Hitmarker</c> type members are absent.
+/// </remarks>
 public class PlayerSendingHitmarkerEventArgs : EventArgs, IPlayerEvent, ICancellableEvent
 {
     /// <summary>
@@ -14,14 +17,10 @@ public class PlayerSendingHitmarkerEventArgs : EventArgs, IPlayerEvent, ICancell
     /// </summary>
     /// <param name="hub">The player that is sending the hitmarker.</param>
     /// <param name="size">The target size multiplier.</param>
-    /// <param name="playAudio">Whether the hitmarker sound effect should play.</param>
-    /// <param name="hitmarkerType">The type of the hitmarker.</param>
-    public PlayerSendingHitmarkerEventArgs(ReferenceHub hub, float size, bool playAudio, HitmarkerType hitmarkerType)
+    public PlayerSendingHitmarkerEventArgs(ReferenceHub hub, float size)
     {
         Player = Player.Get(hub);
         Size = size;
-        PlayAudio = playAudio;
-        Hitmarker = hitmarkerType;
 
         IsAllowed = true;
     }
@@ -35,16 +34,6 @@ public class PlayerSendingHitmarkerEventArgs : EventArgs, IPlayerEvent, ICancell
     /// Gets or sets the target size multiplier.
     /// </summary>
     public float Size { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the hitmarker sound effect should play.
-    /// </summary>
-    public bool PlayAudio { get; set; }
-
-    /// <summary>
-    /// Gets or sets a the type of the hitmarker.
-    /// </summary>
-    public HitmarkerType Hitmarker { get; set; }
 
     /// <inheritdoc/>
     public bool IsAllowed { get; set; }

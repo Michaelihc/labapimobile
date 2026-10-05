@@ -1,4 +1,4 @@
-using LabApi.Events.Handlers;
+﻿using LabApi.Events.Handlers;
 using LabApi.Features;
 using LabApi.Features.Console;
 using LabApi.Features.Permissions;
@@ -86,9 +86,6 @@ public static partial class PluginLoader
 
         // Then we load all the plugins and enable them
         LoadAllPlugins();
-
-        // Resolve the server modded transparency flag
-        ResolveTransparentlyModdedFlag();
 
         // Add enabled plugins to build info
         AddPluginsToBuildInfo();
@@ -327,41 +324,6 @@ public static partial class PluginLoader
         {
             Logger.Error($"{LoggerPrefix} Failed to load LabAPI configuration, using defaults");
             Logger.Error(e);
-        }
-    }
-
-    /// <summary>
-    /// Resolves whether the installed plugins are marked as transparent and sets the <see cref="Server.IsTransparentlyModded"/> flag based on the result.
-    /// </summary>
-    private static void ResolveTransparentlyModdedFlag()
-    {
-        if (Plugins.Count == 0)
-        {
-            return;
-        }
-
-        if (Server.IsTransparentlyModded)
-        {
-            return;
-        }
-
-        bool isTransparent = true;
-
-        foreach (Plugin plugin in Plugins.Keys)
-        {
-            if (!plugin.IsTransparent)
-            {
-                isTransparent = false;
-                break;
-            }
-        }
-
-        Server.IsTransparentlyModded = isTransparent;
-
-        if (isTransparent)
-        {
-            Logger.Raw($"{LoggerPrefix} This server has been flagged as transparently modded by one or more installed plugins. If you believe this is a mistake, please review your installed plugins and contact the plugin developers.", ConsoleColor.Red);
-            ServerConsole.Update = true;
         }
     }
 

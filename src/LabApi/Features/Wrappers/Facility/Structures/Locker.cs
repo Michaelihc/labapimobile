@@ -86,8 +86,8 @@ public class Locker : Structure
     /// </remarks>
     public int MinChambersToFill
     {
-        get => Base.MinChambersToFill;
-        set => Base.MinChambersToFill = value;
+        get => Base._minChambersToFill;
+        set => Base._minChambersToFill = value;
     }
 
     /// <summary>
@@ -96,8 +96,8 @@ public class Locker : Structure
     /// </summary>
     public int MaxChambersToFill
     {
-        get => Base.MaxChambersToFill;
-        set => Base.MaxChambersToFill = value;
+        get => Base._maxChambersToFill;
+        set => Base._maxChambersToFill = value;
     }
 
     /// <summary>
@@ -148,6 +148,7 @@ public class Locker : Structure
     public void FillChambers()
     {
         List<LockerChamber> chambers = ListPool<LockerChamber>.Shared.Rent();
+        chambers.AddRange(Chambers);
         if (MinChambersToFill != 0 && MaxChambersToFill >= MinChambersToFill)
         {
             int removeCount = Chambers.Count - Random.Range(MinChambersToFill, MaxChambersToFill + 1);

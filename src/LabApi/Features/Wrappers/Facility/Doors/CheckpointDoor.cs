@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using BaseCheckpointDoor = Interactables.Interobjects.CheckpointDoor;
+using BaseBreakableDoor = Interactables.Interobjects.BreakableDoor;
+using LabApi.Events.Patches.Facility;
 
 namespace LabApi.Features.Wrappers;
 
@@ -70,11 +72,6 @@ public class CheckpointDoor : Door
     public new BaseCheckpointDoor Base { get; }
 
     /// <summary>
-    /// The base <see cref="CheckpointSequenceController"/> object.
-    /// </summary>
-    public CheckpointSequenceController SequenceController => Base.SequenceCtrl;
-
-    /// <summary>
     /// All <see cref="Door"/> instances operated by this checkpoint.
     /// </summary>
     public Door[] SubDoors { get; }
@@ -92,12 +89,18 @@ public class CheckpointDoor : Door
     /// Gets or sets whether the doors are broken.
     /// </summary>
     /// <remarks>
-    /// Some doors can not be unbroken.
+    /// Carl Mod doors can not be unbroken; setting <see langword="false"/> does nothing.
     /// </remarks>
     public bool IsBroken
     {
         get => Base.IsDestroyed;
-        set => Base.IsDestroyed = value;
+        set
+        {
+            if (value)
+            {
+                TryBreak();
+            }
+        }
     }
 
     /// <summary>
@@ -105,8 +108,32 @@ public class CheckpointDoor : Door
     /// </summary>
     public float MaxHealth
     {
-        get => Base.MaxHealth;
-        set => Base.MaxHealth = value;
+        get
+        {
+            float total = 0f;
+            int count = 0;
+            foreach (DoorVariant door in Base.SubDoors)
+            {
+                if (door is BaseBreakableDoor breakable)
+                {
+                    total += breakable.MaxHealth;
+                    count++;
+                }
+            }
+
+            return count == 0 ? 0f : total / count;
+        }
+
+        set
+        {
+            foreach (DoorVariant door in Base.SubDoors)
+            {
+                if (door is BaseBreakableDoor breakable)
+                {
+                    breakable.MaxHealth = value;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -114,17 +141,45 @@ public class CheckpointDoor : Door
     /// </summary>
     public float Health
     {
-        get => Base.RemainingHealth;
-        set => Base.RemainingHealth = value;
+        get
+        {
+            float total = 0f;
+            int count = 0;
+            foreach (DoorVariant door in Base.SubDoors)
+            {
+                if (door is BaseBreakableDoor breakable)
+                {
+                    total += breakable.RemainingHealth;
+                    count++;
+                }
+            }
+
+            return count == 0 ? 0f : total / count;
+        }
+
+        set
+        {
+            foreach (DoorVariant door in Base.SubDoors)
+            {
+                if (door is BaseBreakableDoor breakable)
+                {
+                    breakable.RemainingHealth = value;
+                }
+            }
+        }
     }
 
     /// <summary>
-    /// Gets or sets the current <see cref="BaseCheckpointDoor.SequenceState"/> of the checkpoint door.
+    /// Gets or sets the current <see cref="BaseCheckpointDoor.CheckpointSequenceStage"/> of the checkpoint door.
     /// </summary>
-    public BaseCheckpointDoor.SequenceState SequenceState
+    /// <remarks>
+    /// Carl Mod's sequence enum is <see cref="BaseCheckpointDoor.CheckpointSequenceStage"/> (official: <c>SequenceState</c>).
+    /// Setting it raises the checkpoint sequence events like the official setter.
+    /// </remarks>
+    public BaseCheckpointDoor.CheckpointSequenceStage SequenceState
     {
-        get => Base.CurSequence;
-        set => Base.CurSequence = value;
+        get => Base._currentSequence;
+        set => CheckpointSequenceHelper.SetSequence(Base, value);
     }
 
     /// <summary>
@@ -132,8 +187,8 @@ public class CheckpointDoor : Door
     /// </summary>
     public float OpenTime
     {
-        get => Base.SequenceCtrl.OpenLoopTime;
-        set => Base.SequenceCtrl.OpenLoopTime = value;
+        get => Base._waitTime;
+        set => Base._waitTime = value;
     }
 
     /// <summary>
@@ -141,19 +196,14 @@ public class CheckpointDoor : Door
     /// </summary>
     public float WarningTime
     {
-        get => Base.SequenceCtrl.WarningTime;
-        set => Base.SequenceCtrl.WarningTime = value;
+        get => Base._warningTime;
+        set => Base._warningTime = value;
     }
 
     /// <summary>
     /// Gets the health as a percentage from 0 to 1.
     /// </summary>
     public float HealthPercent => Base.GetHealthPercent();
-
-    /// <summary>
-    /// Plays the warning alarm sound.
-    /// </summary>
-    public void PlayWarningSound() => Base.RpcPlayWarningSound();
 
     /// <summary>
     /// Damage all the sub doors by specified amount.

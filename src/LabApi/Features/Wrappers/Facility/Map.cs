@@ -63,32 +63,13 @@ public static class Map
     public static IReadOnlyCollection<Ragdoll> Ragdolls => Ragdoll.List;
 
     /// <summary>
-    /// Represents the bounds for the default escape zone on surface.
+    /// Gets the default escape zone.
     /// </summary>
     /// <remarks>
-    /// By default this is included in the <see cref="EscapeZones"/> list.
+    /// Carl Mod's escape area is a fixed sphere around <c>Escape.WorldPos</c>; this is its bounding box. Escape zones
+    /// cannot be added or removed in Carl Mod.
     /// </remarks>
-    public static Bounds DefaultEscapeZone { get; } = Escape.DefaultEscapeZone;
-
-    /// <summary>
-    /// A list of all bounds used as escape zones.
-    /// </summary>
-    /// <remarks>
-    /// By default only the <see cref="DefaultEscapeZone"/> is included in the list.
-    /// </remarks>
-    public static List<Bounds> EscapeZones => Escape.EscapeZones;
-
-    /// <summary>
-    /// Adds another bounds to be used as an escape zone to the <see cref="EscapeZones"/> list.
-    /// </summary>
-    /// <param name="escapeZone">The bounds of the new escape zone.</param>
-    public static void AddEscapeZone(Bounds escapeZone) => EscapeZones.Add(escapeZone);
-
-    /// <summary>
-    /// Removes an existing bounds from the <see cref="EscapeZones"/> list.
-    /// </summary>
-    /// <param name="escapeZone">The bounds of the escape zone to remove.</param>
-    public static void RemoveEscapeZone(Bounds escapeZone) => EscapeZones.Remove(escapeZone);
+    public static Bounds DefaultEscapeZone { get; } = new(Escape.WorldPos, Vector3.one * (2f * Mathf.Sqrt(Escape.RadiusSqr)));
 
     #region Get Random
 
@@ -181,7 +162,7 @@ public static class Map
     public static LightsController? GetRandomLight(FacilityZone zone)
     {
         // TODO: use zone wrapper.
-        IEnumerable<LightsController> lights = RoomLights.Where(x => x.Room.Zone == zone);
+        IEnumerable<LightsController> lights = RoomLights.Where(x => x.Room?.Zone == zone);
         int count = lights.Count();
         return count != 0 ? lights.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
@@ -195,7 +176,7 @@ public static class Map
     public static LightsController? GetRandomLight(IEnumerable<FacilityZone> zones)
     {
         // TODO: use zone wrapper.
-        IEnumerable<LightsController> lights = RoomLights.Where(x => zones.Contains(x.Room.Zone));
+        IEnumerable<LightsController> lights = RoomLights.Where(x => x.Room != null && zones.Contains(x.Room.Zone));
         int count = lights.Count();
         return count != 0 ? lights.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
@@ -217,7 +198,7 @@ public static class Map
     public static Camera? GetRandomCamera(FacilityZone zone)
     {
         // TODO: use zone wrapper.
-        IEnumerable<Camera> cameras = Cameras.Where(x => x.Room.Zone == zone);
+        IEnumerable<Camera> cameras = Cameras.Where(x => x.Room?.Zone == zone);
         int count = cameras.Count();
         return count != 0 ? cameras.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
@@ -230,7 +211,7 @@ public static class Map
     public static Camera? GetRandomCamera(IEnumerable<FacilityZone> zones)
     {
         // TODO: use zone wrapper.
-        IEnumerable<Camera> cameras = Cameras.Where(x => zones.Contains(x.Room.Zone));
+        IEnumerable<Camera> cameras = Cameras.Where(x => x.Room != null && zones.Contains(x.Room.Zone));
         int count = cameras.Count();
         return count != 0 ? cameras.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
@@ -242,7 +223,7 @@ public static class Map
     // TODO: use wrapper type
     public static Locker? GetRandomLocker()
     {
-        throw new NotImplementedException();
+        return Locker.List.Count != 0 ? Locker.List.ElementAt(UnityEngine.Random.Range(0, Locker.List.Count)) : null;
     }
 
     /// <summary>
@@ -253,7 +234,9 @@ public static class Map
     // TODO: use wrapper type
     public static Locker? GetRandomLocker(FacilityZone zone)
     {
-        throw new NotImplementedException();
+        IEnumerable<Locker> lockers = Locker.List.Where(x => x.Room?.Zone == zone);
+        int count = lockers.Count();
+        return count != 0 ? lockers.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
 
     /// <summary>
@@ -264,7 +247,9 @@ public static class Map
     // TODO: use wrapper type
     public static Locker? GetRandomLocker(IEnumerable<FacilityZone> zones)
     {
-        throw new NotImplementedException();
+        IEnumerable<Locker> lockers = Locker.List.Where(x => x.Room != null && zones.Contains(x.Room.Zone));
+        int count = lockers.Count();
+        return count != 0 ? lockers.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
 
     /// <summary>
@@ -308,10 +293,11 @@ public static class Map
     /// </summary>
     /// <param name="zone">The zone to pick a random pickup from.</param>
     /// <returns>The random pickup if there were any in the zone otherwise null.</returns>
-    // TODO: implement once pickup is given a Room property
     public static Pickup? GetRandomPickup(FacilityZone zone)
     {
-        throw new NotImplementedException();
+        IEnumerable<Pickup> pickups = Pickups.Where(x => Room.TryGetRoomAtPosition(x.Position, out Room? room) && room.Zone == zone);
+        int count = pickups.Count();
+        return count != 0 ? pickups.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
 
     /// <summary>
@@ -319,10 +305,11 @@ public static class Map
     /// </summary>
     /// <param name="zones">The zones to pick a random pickup form.</param>
     /// <returns>The random pickup if there were any in the zones otherwise null.</returns>
-    // TODO: implement once pickup is given a Room property
     public static Pickup? GetRandomPickup(IEnumerable<FacilityZone> zones)
     {
-        throw new NotImplementedException();
+        IEnumerable<Pickup> pickups = Pickups.Where(x => Room.TryGetRoomAtPosition(x.Position, out Room? room) && zones.Contains(room.Zone));
+        int count = pickups.Count();
+        return count != 0 ? pickups.ElementAt(UnityEngine.Random.Range(0, count)) : null;
     }
 
     /// <summary>
@@ -389,7 +376,7 @@ public static class Map
         // TODO: use zone wrapper?
         foreach (LightsController lc in LightsController.List)
         {
-            if (lc.Room.Zone != zone)
+            if (lc.Room?.Zone != zone)
             {
                 continue;
             }
@@ -409,7 +396,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (!facilityZones.Contains(lc.Room.Zone))
+            if (lc.Room == null || !facilityZones.Contains(lc.Room.Zone))
             {
                 continue;
             }
@@ -428,7 +415,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (lc.Room.Zone != zone)
+            if (lc.Room?.Zone != zone)
             {
                 continue;
             }
@@ -447,7 +434,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (!zones.Contains(lc.Room.Zone))
+            if (lc.Room == null || !zones.Contains(lc.Room.Zone))
             {
                 continue;
             }
@@ -476,7 +463,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (lc.Room.Zone != zone)
+            if (lc.Room?.Zone != zone)
             {
                 continue;
             }
@@ -494,7 +481,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (!zones.Contains(lc.Room.Zone))
+            if (lc.Room == null || !zones.Contains(lc.Room.Zone))
             {
                 continue;
             }
@@ -527,7 +514,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (lc.Room.Zone != zone)
+            if (lc.Room?.Zone != zone)
             {
                 continue;
             }
@@ -546,7 +533,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (!zones.Contains(lc.Room.Zone))
+            if (lc.Room == null || !zones.Contains(lc.Room.Zone))
             {
                 continue;
             }
@@ -575,7 +562,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (lc.Room.Zone != zone)
+            if (lc.Room?.Zone != zone)
             {
                 continue;
             }
@@ -593,7 +580,7 @@ public static class Map
         // TODO: use zone wrapper.
         foreach (LightsController lc in LightsController.List)
         {
-            if (!zones.Contains(lc.Room.Zone))
+            if (lc.Room == null || !zones.Contains(lc.Room.Zone))
             {
                 continue;
             }

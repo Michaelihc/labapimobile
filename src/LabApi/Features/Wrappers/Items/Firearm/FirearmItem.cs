@@ -1,19 +1,26 @@
-﻿using Generators;
+using Generators;
+using GameCore;
+using InventorySystem;
 using InventorySystem.Items.Firearms;
 using InventorySystem.Items.Firearms.Attachments;
 using InventorySystem.Items.Firearms.Attachments.Components;
+using InventorySystem.Items.Firearms.BasicMessages;
 using InventorySystem.Items.Firearms.Modules;
-using LabApi.Features.Console;
+using LabApi.Events.Patches.ItemsFirearms;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using UnityEngine;
+using Utils.Networking;
+using Logger = LabApi.Features.Console.Logger;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
 /// The wrapper representing <see cref="Firearm"/>.<para/>
-/// Firearms are functioning as they close as they would in real life.
-/// This means that there are properties for whether the bolt is closed or opened, whether the hammer is cocked for specific firearms, whether the magazine is inserted and so many other properties you may need to be aware of when adjusting this firearm item.
+/// The Carl Mod firearm keeps its whole state in one <see cref="FirearmStatus"/>: a single ammo count (chambered rounds included),
+/// status flags (cocked, chambered, magazine inserted, flashlight) and the attachments code.
+/// This wrapper exposes the official LabAPI view of that state: <see cref="StoredAmmo"/> is the ammo container and <see cref="ChamberedAmmo"/> the chamber.
 /// </summary>
 public class FirearmItem : Item
 {
@@ -64,14 +71,13 @@ public class FirearmItem : Item
     }
 
     /// <summary>
-    /// Initializes the <see cref="FirearmItem"/> class by subscribing to <see cref="Firearm"/> events and registers derived wrappers.
+    /// Initializes the <see cref="FirearmItem"/> class by registering derived wrappers.
     /// </summary>
     [InitializeWrapper]
     internal static void InitializeFirearmWrappers()
     {
         Register(ItemType.ParticleDisruptor, (x) => new ParticleDisruptorItem((ParticleDisruptor)x));
         Register(ItemType.GunRevolver, (x) => new RevolverFirearm(x));
-        Register(ItemType.GunSCP127, (x) => new Scp127Firearm(x));
         Register(ItemType.GunShotgun, (x) => new ShotgunFirearm(x));
     }
 
@@ -82,7 +88,7 @@ public class FirearmItem : Item
     /// <param name="constructor">A handler to construct the wrapper with the base game instance.</param>
     private static void Register(ItemType itemType, Func<Firearm, FirearmItem> constructor)
     {
-        TypeWrappers.Add(itemType, x => constructor(x));
+        TypeWrappers.Add(itemType, constructor);
     }
 
     /// <summary>
@@ -98,8 +104,6 @@ public class FirearmItem : Item
         {
             Dictionary.Add(firearm, this);
         }
-
-        CacheModules();
     }
 
     /// <summary>
@@ -120,7 +124,7 @@ public class FirearmItem : Item
     /// <summary>
     /// Gets the weight of the firearm in kilograms without any attachments.
     /// </summary>
-    public float BaseWeight => Base.BaseLength;
+    public float BaseWeight => Base.BaseWeight;
 
     /// <summary>
     /// Gets the length of the firearm in inches without any attachments.
@@ -130,27 +134,77 @@ public class FirearmItem : Item
     /// <summary>
     /// Gets whether the player is currently reloading this firearm.
     /// </summary>
-    public bool IsReloading => ReloaderModule.IsReloading;
-    
+    public bool IsReloading => FirearmReloadTracker.Get(Base) == FirearmReloadTracker.Reloading;
+
     /// <summary>
     /// Gets whether the player is currently unloading this firearm.
     /// </summary>
-    public bool IsUnloading => ReloaderModule.IsUnloading;
-    
+    public bool IsUnloading => FirearmReloadTracker.Get(Base) == FirearmReloadTracker.Unloading;
+
     /// <summary>
     /// Gets whether the player is either reloading or unloading this firearm.
     /// </summary>
-    public bool IsReloadingOrUnloading => ReloaderModule.IsReloadingOrUnloading;
-    
+    public bool IsReloadingOrUnloading => FirearmReloadTracker.Get(Base) != FirearmReloadTracker.None;
+
     /// <summary>
     /// Gets whether the player can reload this firearm.
     /// </summary>
-    public bool CanReload => IReloadUnloadValidatorModule.ValidateReload(Base) && !IsReloadingOrUnloading;
+    /// <remarks>
+    /// Mirrors the server checks of the firearm's ammo manager without starting the reload.
+    /// </remarks>
+    public bool CanReload
+    {
+        get
+        {
+            if (IsReloadingOrUnloading || !ModulesIdle)
+            {
+                return false;
+            }
+
+            FirearmStatus status = Base.Status;
+            switch (AmmoManagerModule)
+            {
+                case AutomaticAmmoManager automatic:
+                    if (status.Ammo >= automatic.MaxAmmo && status.Flags.HasFlagFast(FirearmStatusFlags.Cocked) && status.Flags.HasFlagFast(FirearmStatusFlags.Chambered))
+                    {
+                        return false;
+                    }
+
+                    return status.Ammo != 0 || ReserveAmmo >= Mathf.Max(1, automatic._chamberSize);
+                case ClipLoadedInternalMagAmmoManager clipLoaded:
+                    return status.Ammo < clipLoaded.MaxAmmo && ReserveAmmo > 0;
+                case TubularMagazineAmmoManager tubular:
+                    return status.Ammo < tubular.MaxAmmo && ReserveAmmo > 0;
+                default:
+                    return false;
+            }
+        }
+    }
 
     /// <summary>
     /// Gets whether the player can unload this firearm.
     /// </summary>
-    public bool CanUnload => IReloadUnloadValidatorModule.ValidateUnload(Base) && !IsReloadingOrUnloading;
+    /// <remarks>
+    /// Mirrors the server checks of the firearm's ammo manager without starting the unload.
+    /// </remarks>
+    public bool CanUnload
+    {
+        get
+        {
+            if (IsReloadingOrUnloading || !ModulesIdle)
+            {
+                return false;
+            }
+
+            FirearmStatus status = Base.Status;
+            return AmmoManagerModule switch
+            {
+                AutomaticAmmoManager or TubularMagazineAmmoManager => status.Ammo > 0,
+                ClipLoadedInternalMagAmmoManager => status.Ammo > 0 || status.Flags.HasFlagFast(FirearmStatusFlags.MagazineInserted),
+                _ => false,
+            };
+        }
+    }
 
     /// <summary>
     /// Gets the firearm's ammo type.
@@ -158,94 +212,24 @@ public class FirearmItem : Item
     /// <remarks>
     /// May be <see cref="ItemType.None"/> if the firearm item is no longer valid or this firearm is <see cref="ParticleDisruptorItem"/>.
     /// </remarks>
-    public ItemType AmmoType
-    {
-        get
-        {
-            if (AmmoContainerModule == null)
-            {
-                return ItemType.None;
-            }
-
-            return AmmoContainerModule.AmmoType;
-        }
-    }
+    public ItemType AmmoType => IsDestroyed ? ItemType.None : Base.AmmoType;
 
     /// <summary>
     /// Gets or sets whether the firearm's hammer is cocked.
     /// </summary>
     /// <remarks>
-    /// Every automatic firearm requires <see cref="Cocked"/> to be <see langword="true"/> and <see cref="BoltLocked"/> to be <see langword="false"/> to be fired properly with chambered ammo.
+    /// Every automatic firearm requires <see cref="Cocked"/> to be <see langword="true"/> and a chambered round to be fired.
     /// </remarks>
     public virtual bool Cocked
     {
-        get
-        {
-            if (ActionModule is AutomaticActionModule actionModule)
-            {
-                return actionModule.Cocked;
-            }
-
-            return false;
-        }
-
-        set
-        {
-            if (ActionModule is not AutomaticActionModule actionModule)
-            {
-                Logger.Error($"Unable to set {nameof(Cocked)} as this firearm's {nameof(IActionModule)} is invalid");
-                return;
-            }
-
-            actionModule.Cocked = value;
-            actionModule.ServerResync();
-        }
-    }
-
-    /// <summary>
-    /// Gets or sets whether the firearm's bolt is in rear position.<para/>
-    /// This is only used by closed-bolt firearms.
-    /// </summary>
-    public virtual bool BoltLocked
-    {
-        get
-        {
-            if (ActionModule is AutomaticActionModule actionModule)
-            {
-                return actionModule.BoltLocked;
-            }
-
-            return false;
-        }
-
-        set
-        {
-            if (ActionModule is not AutomaticActionModule actionModule)
-            {
-                Logger.Error($"Unable to set {nameof(BoltLocked)} as this firearm's {nameof(IActionModule)} is invalid");
-                return;
-            }
-
-            actionModule.BoltLocked = value;
-            actionModule.ServerResync();
-        }
+        get => Base.Status.Flags.HasFlagFast(FirearmStatusFlags.Cocked);
+        set => SetFlag(FirearmStatusFlags.Cocked, value);
     }
 
     /// <summary>
     /// Gets if the firearm fires from an open bolt, that means the chambers are not capable of storing any ammo in <see cref="ChamberedAmmo"/>.
     /// </summary>
-    public virtual bool OpenBolt
-    {
-        get
-        {
-            if (ActionModule is AutomaticActionModule actionModule)
-            {
-                return actionModule.OpenBolt;
-            }
-
-            return false;
-        }
-    }
+    public virtual bool OpenBolt => AmmoManagerModule is AutomaticAmmoManager { _chamberSize: 0 };
 
     /// <summary>
     /// Gets the firerate with current attachment's modifiers applied.
@@ -254,12 +238,8 @@ public class FirearmItem : Item
     {
         get
         {
-            if (ActionModule != null)
-            {
-                return ActionModule.DisplayCyclicRate;
-            }
-
-            return 0;
+            IActionModule action = ActionModule;
+            return action != null ? action.CyclicRate : 0;
         }
     }
 
@@ -273,8 +253,10 @@ public class FirearmItem : Item
         get => Base.GetCurrentAttachmentsCode();
         set
         {
-            Base.ApplyAttachmentsCode(value, true);
-            Base.ServerResendAttachmentCode();
+            uint code = Base.ValidateAttachmentsCode(value);
+            FirearmStatus status = Base.Status;
+            Base.ApplyAttachmentsCode(code, false);
+            Base.Status = new FirearmStatus(status.Ammo, status.Flags, code);
         }
     }
 
@@ -288,32 +270,35 @@ public class FirearmItem : Item
     /// </remarks>
     public virtual bool MagazineInserted
     {
-        get
-        {
-            if (MagazineControllerModule == null)
-            {
-                return false;
-            }
-
-            return MagazineControllerModule.MagazineInserted;
-        }
-
+        get => HasMagazine && Base.Status.Flags.HasFlagFast(FirearmStatusFlags.MagazineInserted);
         set
         {
-            if (MagazineControllerModule is not MagazineModule magazineModule)
+            if (!HasMagazine)
             {
-                Logger.Error($"Unable to set {nameof(MagazineInserted)} as this firearm's {nameof(IMagazineControllerModule)} is null");
+                Logger.Error($"Unable to set {nameof(MagazineInserted)} as this firearm has no magazine");
+                return;
+            }
+
+            FirearmStatus status = Base.Status;
+            if (status.Flags.HasFlagFast(FirearmStatusFlags.MagazineInserted) == value)
+            {
                 return;
             }
 
             if (value)
             {
-                magazineModule.ServerInsertEmptyMagazine();
+                Base.Status = new FirearmStatus(status.Ammo, status.Flags | FirearmStatusFlags.MagazineInserted, status.Attachments);
+                return;
             }
-            else
+
+            int chambered = ChamberedAmmo;
+            int toReturn = status.Ammo - chambered;
+            if (toReturn > 0 && Base.Owner != null && AmmoType != ItemType.None)
             {
-                magazineModule.ServerRemoveMagazine();
+                Base.OwnerInventory.ServerAddAmmo(AmmoType, toReturn);
             }
+
+            Base.Status = new FirearmStatus((byte)chambered, status.Flags & ~FirearmStatusFlags.MagazineInserted, status.Attachments);
         }
     }
 
@@ -325,27 +310,8 @@ public class FirearmItem : Item
     /// </remarks>
     public virtual int StoredAmmo
     {
-        get
-        {
-            if (AmmoContainerModule == null)
-            {
-                return 0;
-            }
-
-            return AmmoContainerModule.AmmoStored;
-        }
-
-        set
-        {
-            if (AmmoContainerModule == null)
-            {
-                Logger.Error($"Unable to set {nameof(StoredAmmo)} as this firearm's {nameof(IPrimaryAmmoContainerModule)} is null");
-                return;
-            }
-
-            int toAdd = value - AmmoContainerModule.AmmoStored;
-            AmmoContainerModule.ServerModifyAmmo(toAdd);
-        }
+        get => Mathf.Max(0, Base.Status.Ammo - ChamberedAmmo);
+        set => SetTotalAmmo(value + ChamberedAmmo);
     }
 
     /// <summary>
@@ -355,12 +321,13 @@ public class FirearmItem : Item
     {
         get
         {
-            if (AmmoContainerModule == null)
+            return AmmoManagerModule switch
             {
-                return 0;
-            }
-
-            return AmmoContainerModule.AmmoMax;
+                null => 0,
+                AutomaticAmmoManager automatic => automatic.MaxAmmo - automatic.ChamberedAmount,
+                TubularMagazineAmmoManager tubular => tubular.MaxAmmo - (Base.Status.Flags.HasFlagFast(FirearmStatusFlags.Cocked) ? tubular.ChamberedRounds : 0),
+                IAmmoManagerModule module => module.MaxAmmo,
+            };
         }
     }
 
@@ -368,91 +335,61 @@ public class FirearmItem : Item
     /// Gets or sets the current ammo in the chamber.
     /// <para><see cref="OpenBolt"/> firearms do not use this value and take ammo directly from it's ammo container.</para>
     /// </summary>
+    /// <remarks>
+    /// The fork counts the chambered round inside the firearm's single ammo count, flagged as chambered.
+    /// Setting this value adds or removes the chambered round(s) and keeps <see cref="StoredAmmo"/> unchanged.
+    /// </remarks>
     public virtual int ChamberedAmmo
     {
         get
         {
-            if (ActionModule is AutomaticActionModule actionModule)
+            if (AmmoManagerModule is not AutomaticAmmoManager automatic)
             {
-                return actionModule.AmmoStored;
+                return 0;
             }
 
-            return 0;
+            return Mathf.Min(Base.Status.Ammo, automatic.ChamberedAmount);
         }
 
         set
         {
-            if (ActionModule is not AutomaticActionModule actionModule)
+            if (AmmoManagerModule is not AutomaticAmmoManager automatic || automatic._chamberSize == 0)
             {
-                Logger.Error($"Unable to set {nameof(ChamberedAmmo)} as this firearm's {nameof(IActionModule)} is not valid.");
+                Logger.Error($"Unable to set {nameof(ChamberedAmmo)} as this firearm has no chamber");
                 return;
             }
 
-            actionModule.AmmoStored = value;
-            actionModule.ServerResync();
+            int stored = StoredAmmo;
+            bool chambered = value > 0;
+            FirearmStatus status = Base.Status;
+            FirearmStatusFlags flags = chambered ? status.Flags | FirearmStatusFlags.Chambered : status.Flags & ~FirearmStatusFlags.Chambered;
+            int total = stored + (chambered ? automatic._chamberSize : 0);
+            Base.Status = new FirearmStatus((byte)Mathf.Clamp(total, 0, byte.MaxValue), flags, status.Attachments);
         }
     }
 
     /// <summary>
-    /// Gets or sets the maximum ammo in chamber.
-    /// Visual side may be incorrect.<para/>
-    /// For automatic firearms, this value won't properly sync above 16 as only 4 bits are used for the chambered sync to the client.
+    /// Gets the maximum ammo in chamber.
     /// </summary>
-    public virtual int ChamberMax
-    {
-        get
-        {
-            if (ActionModule is AutomaticActionModule actionModule)
-            {
-                return actionModule.ChamberSize;
-            }
-
-            return 0;
-        }
-
-        set
-        {
-            if (ActionModule is not AutomaticActionModule actionModule)
-            {
-                Logger.Error($"Unable to set {nameof(ChamberMax)} as this firearm's {nameof(IActionModule)} is not valid.");
-                return;
-            }
-
-            actionModule.ChamberSize = value;
-        }
-    }
+    /// <remarks>
+    /// Read-only: the fork fixes the chamber size when the firearm's modules are created.
+    /// </remarks>
+    public virtual int ChamberMax => AmmoManagerModule is AutomaticAmmoManager automatic ? automatic._chamberSize : 0;
 
     /// <summary>
     /// Gets or sets whether the firearm's flashlight attachment is enabled and is emitting light.
     /// </summary>
     public bool FlashlightEnabled
     {
-        get
-        {
-            foreach (Attachment attachment in Attachments)
-            {
-                if (attachment is not FlashlightAttachment flashlightAttachment)
-                {
-                    continue;
-                }
-
-                return flashlightAttachment.IsEnabled && flashlightAttachment.IsEmittingLight;
-            }
-
-            return false;
-        }
-
+        get => Base.Status.Flags.HasFlagFast(FirearmStatusFlags.FlashlightEnabled) && Base.HasAdvantageFlag(AttachmentDescriptiveAdvantages.Flashlight);
         set
         {
-            foreach (Attachment attachment in Attachments)
+            if (!Base.HasAdvantageFlag(AttachmentDescriptiveAdvantages.Flashlight))
             {
-                if (attachment is not FlashlightAttachment flashlightAttachment)
-                {
-                    continue;
-                }
-
-                flashlightAttachment.ServerSendStatus(value);
+                return;
             }
+
+            SetFlag(FirearmStatusFlags.FlashlightEnabled, value);
         }
     }
 
@@ -461,12 +398,6 @@ public class FirearmItem : Item
     /// <b>Set the attachments status using <see cref="AttachmentsCode"/></b>
     /// </summary>
     public Attachment[] Attachments => Base.Attachments;
-
-    /// <summary>
-    /// All modules used by this firearm.
-    /// Modules are the main scripts defining all of the functionality of a firearm.
-    /// </summary>
-    public ModuleBase[] Modules => Base.Modules;
 
     /// <summary>
     /// Gets all available attachments names of this firearms.
@@ -500,24 +431,44 @@ public class FirearmItem : Item
     }
 
     /// <summary>
-    /// Module for the magazine.
+    /// Module for the firearm's ammo (magazine, cylinder, tube) and reloading.
     /// </summary>
-    protected IPrimaryAmmoContainerModule AmmoContainerModule { get; set; } = null!;
+    protected IAmmoManagerModule AmmoManagerModule => Base.AmmoManagerModule;
 
     /// <summary>
-    /// Module for firearm's chamber.
+    /// Module for firearm's action (trigger, hammer, chamber).
     /// </summary>
-    protected IActionModule ActionModule { get; set; } = null!;
+    protected IActionModule ActionModule => Base.ActionModule;
 
     /// <summary>
-    /// Module for handling gun's reloading and unloading.
+    /// Gets whether the firearm uses a magazine that can be inserted and removed.
     /// </summary>
-    protected IReloaderModule ReloaderModule { get; set; } = null!;
+    protected virtual bool HasMagazine => AmmoManagerModule is AutomaticAmmoManager or ClipLoadedInternalMagAmmoManager;
 
-    /// <summary>
-    /// Module for handling gun's magazine.
-    /// </summary>
-    protected IMagazineControllerModule MagazineControllerModule { get; set; } = null!;
+    private bool ModulesIdle
+    {
+        get
+        {
+            IEquipperModule equipper = Base.EquipperModule;
+            IActionModule action = ActionModule;
+            IAmmoManagerModule ammo = AmmoManagerModule;
+            return equipper != null && equipper.Standby && action != null && action.Standby && ammo != null && ammo.Standby;
+        }
+    }
+
+    private int ReserveAmmo
+    {
+        get
+        {
+            if (ConfigFile.ServerConfig.GetBool("infinite_ammo"))
+            {
+                return byte.MaxValue;
+            }
+
+            Inventory? inventory = Base.Owner != null ? Base.OwnerInventory : null;
+            return inventory != null ? inventory.GetCurAmmo(Base.AmmoType) : 0;
+        }
+    }
 
     /// <summary>
     /// Gets whether the provided attachments code is valid and can be applied.
@@ -569,7 +520,7 @@ public class FirearmItem : Item
         uint bin = 1;
         foreach (Attachment attachment in Attachments)
         {
-            if (attachments.Contains(attachment.Name))
+            if (Array.IndexOf(attachments, attachment.Name) >= 0)
             {
                 resultCode += bin;
             }
@@ -583,32 +534,20 @@ public class FirearmItem : Item
     /// <summary>
     /// Reloads the firearm if <see cref="CanReload"/> is <see langword="true"/>.
     /// </summary>
+    /// <remarks>
+    /// The firearm must be equipped: the fork drives reloads through the equipped firearm's animator.
+    /// </remarks>
     /// <returns>Whether the player started to reload.</returns>
-    public bool Reload()
-    {
-        if (ReloaderModule is not AnimatorReloaderModuleBase animatorModule)
-        {
-            Logger.Error($"Unable to reload this firearm as it's animator module is invalid");
-            return false;
-        }
-
-        return animatorModule.ServerTryReload();
-    }
+    public bool Reload() => ServerRequestAmmoAction(RequestType.Reload);
 
     /// <summary>
     /// Unloads the firearm if <see cref="CanUnload"/> is <see langword="true"/>.
     /// </summary>
+    /// <remarks>
+    /// The firearm must be equipped: the fork drives unloads through the equipped firearm's animator.
+    /// </remarks>
     /// <returns>Whether the player started the unload.</returns>
-    public bool Unload()
-    {
-        if (ReloaderModule is not AnimatorReloaderModuleBase animatorModule)
-        {
-            Logger.Error($"Unable to unload this firearm as it's animator module is invalid");
-            return false;
-        }
-
-        return animatorModule.ServerTryUnload();
-    }
+    public bool Unload() => ServerRequestAmmoAction(RequestType.Unload);
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.
@@ -620,27 +559,50 @@ public class FirearmItem : Item
     }
 
     /// <summary>
-    /// Caches modules used by the firearm.
+    /// Replaces the firearm's total ammo count, keeping flags and attachments.
     /// </summary>
-    protected virtual void CacheModules()
+    /// <param name="total">The new total, clamped to a byte.</param>
+    protected void SetTotalAmmo(int total)
     {
-        foreach (ModuleBase module in Modules)
+        FirearmStatus status = Base.Status;
+        Base.Status = new FirearmStatus((byte)Mathf.Clamp(total, 0, byte.MaxValue), status.Flags, status.Attachments);
+    }
+
+    /// <summary>
+    /// Sets or clears one status flag; the fork resends the status to clients when it changes.
+    /// </summary>
+    /// <param name="flag">The flag.</param>
+    /// <param name="value">Whether the flag is set.</param>
+    protected void SetFlag(FirearmStatusFlags flag, bool value)
+    {
+        FirearmStatus status = Base.Status;
+        FirearmStatusFlags flags = value ? status.Flags | flag : status.Flags & ~flag;
+        if (flags != status.Flags)
         {
-            switch (module)
-            {
-                case IPrimaryAmmoContainerModule ammoModule:
-                    AmmoContainerModule = ammoModule;
-                    continue;
-                case IActionModule actionModule:
-                    ActionModule = actionModule;
-                    continue;
-                case IReloaderModule reloaderModule:
-                    ReloaderModule = reloaderModule;
-                    continue;
-                case IMagazineControllerModule magazineControllerModule:
-                    MagazineControllerModule = magazineControllerModule;
-                    continue;
-            }
+            Base.Status = new FirearmStatus(status.Ammo, flags, status.Attachments);
         }
+    }
+
+    private bool ServerRequestAmmoAction(RequestType request)
+    {
+        IAmmoManagerModule module = AmmoManagerModule;
+        if (module == null)
+        {
+            Logger.Error($"Unable to {(request == RequestType.Reload ? "reload" : "unload")} this firearm as its {nameof(IAmmoManagerModule)} is null");
+            return false;
+        }
+
+        if (!Base.IsEquipped)
+        {
+            return false;
+        }
+
+        bool started = request == RequestType.Reload ? module.ServerTryReload() : module.ServerTryUnload();
+        if (started)
+        {
+            new RequestMessage(Serial, request).SendToAuthenticated();
+        }
+
+        return started;
     }
 }

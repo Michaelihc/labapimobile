@@ -17,14 +17,12 @@ public class ExplosionSpawningEventArgs : EventArgs, IPlayerEvent, ICancellableE
     /// <param name="hub">The player which caused this explosion.</param>
     /// <param name="position">The position of explosion.</param>
     /// <param name="settingsReference">The projectile which will cause the explosion.</param>
-    /// <param name="explosionType">The type of this explosion.</param>
     /// <param name="destroyDoors">Whether the explosion should destroy doors.</param>
-    public ExplosionSpawningEventArgs(ReferenceHub? hub, Vector3 position, ExplosionGrenade settingsReference, ExplosionType explosionType, bool destroyDoors)
+    public ExplosionSpawningEventArgs(ReferenceHub? hub, Vector3 position, ExplosionGrenade settingsReference, bool destroyDoors)
     {
         Player = Player.Get(hub);
         Position = position;
         Settings = settingsReference;
-        ExplosionType = explosionType;
         DestroyDoors = destroyDoors;
 
         IsAllowed = true;
@@ -44,11 +42,6 @@ public class ExplosionSpawningEventArgs : EventArgs, IPlayerEvent, ICancellableE
     /// Gets or sets the projectile which will cause explosion.
     /// </summary>
     public ExplosionGrenade Settings { get; set; }
-
-    /// <summary>
-    /// Gets or sets the type of this explosion.
-    /// </summary>
-    public ExplosionType ExplosionType { get; set; }
 
     /// <summary>
     /// Gets or sets whether the explosion should destroy doors.

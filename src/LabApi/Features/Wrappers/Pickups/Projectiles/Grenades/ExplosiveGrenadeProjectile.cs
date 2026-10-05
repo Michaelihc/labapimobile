@@ -61,8 +61,8 @@ public class ExplosiveGrenadeProjectile : TimedGrenadeProjectile
     /// </summary>
     public LayerMask DetectionMask
     {
-        get => Base.DetectionMask;
-        set => Base.DetectionMask = value;
+        get => Base._detectionMask;
+        set => Base._detectionMask = value;
     }
 
     /// <summary>
@@ -70,8 +70,8 @@ public class ExplosiveGrenadeProjectile : TimedGrenadeProjectile
     /// </summary>
     public float MaxRadius
     {
-        get => Base.MaxRadius;
-        set => Base.MaxRadius = value;
+        get => Base._maxRadius;
+        set => Base._maxRadius = value;
     }
 
     /// <summary>
@@ -79,8 +79,8 @@ public class ExplosiveGrenadeProjectile : TimedGrenadeProjectile
     /// </summary>
     public float ScpDamageMultiplier
     {
-        get => Base.ScpDamageMultiplier;
-        set => Base.ScpDamageMultiplier = value;
+        get => Base._scpDamageMultiplier;
+        set => Base._scpDamageMultiplier = value;
     }
 
     /// <inheritdoc/>

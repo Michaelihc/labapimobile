@@ -2,7 +2,9 @@
 using InventorySystem;
 using InventorySystem.Items;
 using MapGeneration;
+using PlayerRoles.FirstPersonControl;
 using PlayerRoles.PlayableScps.Scp106;
+using PlayerStatsSystem;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -45,11 +47,7 @@ public class PocketDimension : Room
     /// </summary>
     public static float MinPocketItemTriggerDelay
     {
-        get => Scp106PocketItemManager.TimerRange.x;
-        set => Scp106PocketItemManager.TimerRange = Scp106PocketItemManager.TimerRange with
-        {
-            x = value,
-        };
+        get => Scp106PocketItemManager.TimerRage.x;
     }
 
     /// <summary>
@@ -57,25 +55,21 @@ public class PocketDimension : Room
     /// </summary>
     public static float MaxPocketItemTriggerDelay
     {
-        get => Scp106PocketItemManager.TimerRange.y;
-        set => Scp106PocketItemManager.TimerRange = Scp106PocketItemManager.TimerRange with
-        {
-            y = value,
-        };
+        get => Scp106PocketItemManager.TimerRage.y;
     }
 
     /// <summary>
     /// Force a <see cref="Player"/> inside the pocket dimension.
     /// </summary>
     /// <param name="player">The <see cref="Player"/> to send.</param>
-    public static void ForceInside(Player player) => player.EnableEffect<PocketCorroding>();
+    public static void ForceInside(Player player) => player.EnableEffect<Corroding>();
 
     /// <summary>
     /// Gets whether a <see cref="Player"/> is considered inside the pocket dimension.
     /// </summary>
     /// <param name="player">The <see cref="Player"/> to check.</param>
     /// <returns>True if inside otherwise false.</returns>
-    public static bool IsPlayerInside(Player player) => player.HasEffect<PocketCorroding>();
+    public static bool IsPlayerInside(Player player) => player.HasEffect<Corroding>();
 
     /// <summary>
     /// Gets the position at which the <paramref name="player"/> was caught.
@@ -84,7 +78,7 @@ public class PocketDimension : Room
     /// <returns>Returns caught position, also returns <see cref="Vector3.zero"/> if the player is not in <see cref="PocketDimension"/>.</returns>
     public static Vector3 GetCaughtPosition(Player player)
     {
-        PocketCorroding? effect = player.GetEffect<PocketCorroding>();
+        Corroding? effect = player.GetEffect<Corroding>();
 
         if (effect != null && effect.Intensity > 0)
         {
@@ -103,7 +97,18 @@ public class PocketDimension : Room
     /// Triggers pocket dimension leaving/left events.
     /// </remarks>
     public static void ForceExit(Player player)
-        => PocketDimensionTeleport.TryExit(null, player.ReferenceHub);
+    {
+        // Carl Mod has no PocketDimensionTeleport.TryExit; this mirrors the exit branch of PocketDimensionTeleport.OnTriggerEnter.
+        ReferenceHub hub = player.ReferenceHub;
+        if (hub.roleManager.CurrentRole is not IFpcRole fpcRole)
+        {
+            return;
+        }
+
+        fpcRole.FpcModule.ServerOverridePosition(Scp106PocketExitFinder.GetBestExitPosition(fpcRole), Vector3.zero);
+        hub.playerEffectsController.EnableEffect<Disabled>(10f, addDuration: true);
+        hub.playerEffectsController.DisableEffect<Corroding>();
+    }
 
     /// <summary>
     /// Force a player to be killed by the pocket dimension.
@@ -114,7 +119,7 @@ public class PocketDimension : Room
     /// Triggers pocket dimension leaving/left events.
     /// </remarks>
     public static void ForceKill(Player player)
-        => PocketDimensionTeleport.TryKill(null, player.ReferenceHub);
+        => player.ReferenceHub.playerStats.DealDamage(new UniversalDamageHandler(-1f, DeathTranslations.PocketDecay));
 
     /// <summary>
     /// Gets whether a <see cref="Pickup"/> is inside the pocket dimension.
@@ -127,68 +132,7 @@ public class PocketDimension : Room
     /// <summary>
     /// Randomizes which pocket dimension's teleports are exits.
     /// </summary>
-    public static void RandomizeExits() => PocketDimensionGenerator.RandomizeTeleports();
-
-    /// <summary>
-    /// Gets the poses used for exits for the pocket dimension.
-    /// </summary>
-    /// <param name="zone">The zone that the exits are associated with.</param>
-    /// <returns>A collection of exit <see cref="Pose"/> instances.</returns>
-    public static IReadOnlyCollection<Pose> GetExitPosesForZone(FacilityZone zone)
-        => Scp106PocketExitFinder.GetPosesForZone(zone);
-
-    /// <summary>
-    /// Adds the specified <see cref="Pose">poses</see> to be used as exits for the pocket dimension.
-    /// </summary>
-    /// <param name="zone">The zone the exits should apply too.</param>
-    /// <param name="poses">The <see cref="Pose">poses</see> to add.</param>
-    public static void AddExitPosesForZone(FacilityZone zone, IEnumerable<Pose> poses)
-    {
-        // Attempts to generate the pose array as it could be empty.
-        if (!Scp106PocketExitFinder.PosesForZoneCache.ContainsKey(zone))
-        {
-            Scp106PocketExitFinder.GetPosesForZone(zone);
-        }
-
-        Scp106PocketExitFinder.PosesForZoneCache[zone] = [.. Scp106PocketExitFinder.PosesForZoneCache[zone], .. poses];
-    }
-
-    /// <summary>
-    /// Adds the specified <see cref="Pose"/> to be used as exits for the pocket dimension.
-    /// </summary>
-    /// <param name="zone">The zone the exits should apply too.</param>
-    /// <param name="pose">The <see cref="Pose"/> to add.</param>
-    public static void AddExitPoseForZone(FacilityZone zone, Pose pose) => AddExitPosesForZone(zone, [pose]);
-
-    /// <summary>
-    /// Removes all poses used as exits for the pocket dimension for the specified zone.
-    /// </summary>
-    /// <param name="zone">The zone to remove exits from.</param>
-    public static void RemoveAllExitPosesForZone(FacilityZone zone)
-        => Scp106PocketExitFinder.PosesForZoneCache[zone] = [];
-
-    /// <summary>
-    /// Removes the specified <see cref="Pose">poses</see> from use as exits for the pocket dimension.
-    /// </summary>
-    /// <param name="zone">The zone to remove exits from.</param>
-    /// <param name="poses">the <see cref="Pose">poses</see> to remove.</param>
-    public static void RemoveExitPosesForZone(FacilityZone zone, IEnumerable<Pose> poses)
-    {
-        // Attempts to generate the pose array as it could be empty.
-        if (!Scp106PocketExitFinder.PosesForZoneCache.ContainsKey(zone))
-        {
-            Scp106PocketExitFinder.GetPosesForZone(zone);
-        }
-
-        Scp106PocketExitFinder.PosesForZoneCache[zone] = Scp106PocketExitFinder.PosesForZoneCache[zone].Except(poses).ToArray();
-    }
-
-    /// <summary>
-    /// Removes the specified <see cref="Pose"/> from use as exits for the pocket dimension.
-    /// </summary>
-    /// <param name="zone">The zone to remove exits from.</param>
-    /// <param name="pose">the <see cref="Pose"/> to remove.</param>
-    public static void RemoveExitPoseForZone(FacilityZone zone, Pose pose) => RemoveExitPosesForZone(zone, [pose]);
+    public static void RandomizeExits() => ImageGenerator.pocketDimensionGenerator.GenerateRandom();
 
     /// <summary>
     /// Gets the rarity of the item using its <see cref="Pickup"/> wrapper see <see cref="RecycleChances"/>.

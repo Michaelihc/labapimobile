@@ -65,6 +65,11 @@ public class Door
         { "ESCAPE_PRIMARY", DoorName.SurfaceEscapePrimary },
         { "ESCAPE_SECONDARY", DoorName.SurfaceEscapeSecondary },
         { "ESCAPE_FINAL", DoorName.SurfaceEscapeFinal },
+        { "HID", DoorName.HczHidChamber },
+        { "HID_LEFT", DoorName.HczHidLeft },
+        { "HID_RIGHT", DoorName.HczHidRight },
+        { "CHECKPOINT_EZ_HCZ_B", DoorName.HczCheckpointB },
+        { "SERVERS_BOTTOM", DoorName.HczServersBottom },
     };
 
     /// <summary>
@@ -120,19 +125,20 @@ public class Door
     /// <returns>The requested door. May be null if door with provided name does not exist.</returns>
     public static Door? Get(DoorName doorName)
     {
-        KeyValuePair<string, DoorName> doorKv = DoorNameDictionary.FirstOrDefault(door => door.Value == doorName);
-
-        if (string.IsNullOrEmpty(doorKv.Key))
+        foreach (KeyValuePair<string, DoorName> doorKv in DoorNameDictionary)
         {
-            return null;
+            if (doorKv.Value != doorName)
+            {
+                continue;
+            }
+
+            if (DoorNametagExtension.NamedDoors.TryGetValue(doorKv.Key, out DoorNametagExtension doorNametagExtension))
+            {
+                return Get(doorNametagExtension.TargetDoor);
+            }
         }
 
-        if (!DoorNametagExtension.NamedDoors.TryGetValue(doorKv.Key, out DoorNametagExtension doorNametagExtension))
-        {
-            return null;
-        }
-
-        return Get(doorNametagExtension.TargetDoor);
+        return null;
     }
 
     /// <summary>
@@ -141,7 +147,7 @@ public class Door
     /// <param name="facilityZone">Target zone.</param>
     /// <returns>An enumerable set of doors.</returns>
     public static IEnumerable<Door> Get(FacilityZone facilityZone) =>
-        List.Where(x => x.Rooms.First().Zone.Equals(facilityZone));
+        List.Where(x => x.Zone == facilityZone);
 
     /// <summary>
     /// Gets the door in specified room.
@@ -156,16 +162,19 @@ public class Door
     /// <param name="roomId">Target room identifier.</param>
     /// <returns>An enumerable set of doors.</returns>
     public static IEnumerable<Door> Get(RoomIdentifier roomId) =>
-        List.Where(x => x.Rooms.First().Equals(roomId));
+        DoorVariant.DoorsByRoom.TryGetValue(roomId, out HashSet<DoorVariant> doors) ? doors.Where(static x => x != null).Select(static x => Get(x)!) : [];
 
     /// <summary>
     /// Initializes the door wrapper class.
     /// </summary>
+    /// <remarks>
+    /// Carl Mod has no <c>DoorVariant.OnInstanceCreated/OnInstanceRemoved</c>; <see cref="OnAdded"/> and <see cref="OnRemoved"/>
+    /// are called by the lifecycle patches in <c>Events/Patches/Internal/FacilityLifecycle.cs</c>.
+    /// </remarks>
     [InitializeWrapper]
     internal static void Initialize()
     {
-        DoorVariant.OnInstanceCreated += OnAdded;
-        DoorVariant.OnInstanceRemoved += OnRemoved;
+        Dictionary.Clear();
 
         Register<Interactables.Interobjects.BreakableDoor>(x => new BreakableDoor(x));
         Register<Interactables.Interobjects.ElevatorDoor>(x => new ElevatorDoor(x));
@@ -198,7 +207,7 @@ public class Door
     /// Private method to handle the creation of new doors in the server.
     /// </summary>
     /// <param name="doorVariant">The <see cref="DoorVariant"/> that was created.</param>
-    private static void OnAdded(DoorVariant doorVariant)
+    internal static void OnAdded(DoorVariant doorVariant)
     {
         try
         {
@@ -217,7 +226,7 @@ public class Door
     /// Private method to handle the removal of doors from the server.
     /// </summary>
     /// <param name="doorVariant">The door being destroyed.</param>
-    private static void OnRemoved(DoorVariant doorVariant)
+    internal static void OnRemoved(DoorVariant doorVariant)
     {
         if (Dictionary.TryGetValue(doorVariant, out Door door))
         {
@@ -284,9 +293,9 @@ public class Door
     /// Gets the name tag of the door.
     /// </summary>
     /// <remarks>
-    /// Is the string version of <see cref="DoorName"/>.
+    /// Is the string version of <see cref="DoorName"/>. Carl Mod keeps the name tag on <see cref="DoorNametagExtension"/>.
     /// </remarks>
-    public string NameTag => Base.DoorName;
+    public string? NameTag => Base.TryGetComponent(out DoorNametagExtension nametag) ? nametag.GetName : null;
 
     /// <summary>
     /// Gets the rooms which have this door.
@@ -301,14 +310,21 @@ public class Door
                 return [];
             }
 
-            return Base.Rooms.Select(Room.Get).ToArray()!;
+            RoomIdentifier[] baseRooms = Base.Rooms;
+            Room[] rooms = new Room[baseRooms.Length];
+            for (int i = 0; i < baseRooms.Length; i++)
+            {
+                rooms[i] = Room.Get(baseRooms[i])!;
+            }
+
+            return rooms;
         }
     }
 
     /// <summary>
     /// Gets the zone in which this door is.
     /// </summary>
-    public FacilityZone Zone => Rooms.FirstOrDefault()?.Zone ?? FacilityZone.Other;
+    public FacilityZone Zone => Base.Rooms is { Length: > 0 } rooms && rooms[0] != null ? rooms[0].Zone : FacilityZone.Other;
 
     /// <summary>
     /// Gets or sets whether the door is open.
@@ -348,9 +364,12 @@ public class Door
     public DoorLockReason LockReason => (DoorLockReason)Base.ActiveLocks;
 
     /// <summary>
-    /// Gets or sets the required <see cref="DoorPermissionFlags"/>.
+    /// Gets or sets the required <see cref="KeycardPermissions"/>.
     /// </summary>
-    public DoorPermissionFlags Permissions
+    /// <remarks>
+    /// Carl Mod uses <see cref="KeycardPermissions"/> instead of the official <c>DoorPermissionFlags</c>.
+    /// </remarks>
+    public KeycardPermissions Permissions
     {
         get => Base.RequiredPermissions.RequiredPermissions;
         set => Base.RequiredPermissions.RequiredPermissions = value;

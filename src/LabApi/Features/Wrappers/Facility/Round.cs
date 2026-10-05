@@ -1,9 +1,8 @@
-﻿using CentralAuth;
+﻿using CarlModExtras;
 using GameCore;
 using PlayerRoles;
 using RoundRestarting;
 using System;
-using Utils.NonAllocLINQ;
 using static ServerStatic;
 
 namespace LabApi.Features.Wrappers;
@@ -26,17 +25,17 @@ public static class Round
     /// <summary>
     /// Gets a value indicating whether the round is ended or not.
     /// </summary>
-    public static bool IsRoundEnded => RoundSummary.singleton.IsRoundEnded;
+    public static bool IsRoundEnded => RoundSummary.singleton != null && RoundSummary.singleton._roundEnded;
 
     /// <summary>
     /// Gets whether the round can end if there is only 1 team alive remaining.<br/>
-    /// <remarks>IMPORTANT: This does NOT check win conditions! Only whether the round is locked and if there is a required amount of players.</remarks>
+    /// <remarks>IMPORTANT: This does NOT check win conditions! Only whether the round is locked (including the Carl Mod <c>deathmatch</c> mode) and if there is a required amount of players.</remarks>
     /// </summary>
     public static bool CanRoundEnd
     {
         get
         {
-            if (IsLocked || (KeepRoundOnOne && (ReferenceHub.AllHubs.Count(x => x.authManager.InstanceMode != ClientInstanceMode.DedicatedServer) < 2)) || !IsRoundStarted)
+            if (IsLocked || DmFun.DmEnabledBool() || (KeepRoundOnOne && CountNonServerHubs() < 2) || !IsRoundStarted)
             {
                 return false;
             }
@@ -73,18 +72,24 @@ public static class Round
     }
 
     /// <summary>
-    /// Gets or sets the current extra targets count for SCPs.
+    /// Gets the current amount of targets for SCPs.
     /// </summary>
-    public static int ExtraTargets
+    public static int ScpTargetsAmount
     {
-        get => RoundSummary.singleton.Network_extraTargets;
-        set => RoundSummary.singleton.Network_extraTargets = value;
-    }
+        get
+        {
+            int count = 0;
+            foreach (ReferenceHub hub in ReferenceHub.AllHubs)
+            {
+                if (hub.GetFaction() is Faction.FoundationStaff or Faction.FoundationEnemy)
+                {
+                    count++;
+                }
+            }
 
-    /// <summary>
-    /// Gets the current amount of targets for SCPs. Use <see cref="ExtraTargets"/> to add/remove any extra.
-    /// </summary>
-    public static int ScpTargetsAmount => ReferenceHub.AllHubs.Count(hub => hub.GetFaction() is Faction.FoundationStaff or Faction.FoundationEnemy) + ExtraTargets;
+            return count;
+        }
+    }
 
     /// <summary>
     /// Gets the amount of total deaths during the round.
@@ -170,5 +175,23 @@ public static class Round
 
         RoundSummary.singleton.ForceEnd();
         return true;
+    }
+
+    /// <summary>
+    /// Counts the connected hubs that are not the dedicated server host.
+    /// </summary>
+    /// <returns>The number of non-server hubs.</returns>
+    internal static int CountNonServerHubs()
+    {
+        int count = 0;
+        foreach (ReferenceHub hub in ReferenceHub.AllHubs)
+        {
+            if (hub.characterClassManager.InstanceMode != ClientInstanceMode.DedicatedServer)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 }

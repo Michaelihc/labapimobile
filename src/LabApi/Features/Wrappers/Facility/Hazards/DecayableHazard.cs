@@ -55,20 +55,12 @@ public class DecayableHazard : Hazard
     /// Gets or sets the modifier applied to <see cref="Time.deltaTime"/> when calculating how much time has passed.<br/>
     /// Setting this value will override any subclass modifiers. Setting it to values less than 0 will remove the override.
     /// </summary>
-    public float DecaySpeed
-    {
-        get => Base.DecaySpeed;
-        set => Base.DecaySpeed = value;
-    }
+    public float DecaySpeed => Base.DecaySpeed;
 
     /// <summary>
     /// Gets or sets the amount of time this object will persist for (in seconds) before disappearing.
     /// </summary>
-    public float LiveDuration
-    {
-        get => Base.HazardDuration;
-        set => Base.HazardDuration = value;
-    }
+    public float LiveDuration => Base.HazardDuration;
 
     /// <summary>
     /// Gets or sets the amount of time in seconds this hazard is being active.
@@ -76,8 +68,8 @@ public class DecayableHazard : Hazard
     /// </summary>
     public float Elapsed
     {
-        get => Base.Elapsed;
-        set => Base.Elapsed = value;
+        get => Base._elapsed;
+        set => Base._elapsed = value;
     }
 
     /// <summary>

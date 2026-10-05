@@ -77,9 +77,9 @@ public class PedestalLocker : Locker
     public bool CanInteract => Chamber.CanInteract;
 
     /// <summary>
-    /// Gets or sets the <see cref="DoorPermissionFlags"/> required by the <see cref="Player"/> to open/close the pedestal.
+    /// Gets or sets the <see cref="KeycardPermissions"/> required by the <see cref="Player"/> to open/close the pedestal.
     /// </summary>
-    public DoorPermissionFlags RequiredPermissions
+    public KeycardPermissions RequiredPermissions
     {
         get => Chamber.RequiredPermissions;
         set => Chamber.RequiredPermissions = value;
@@ -142,10 +142,9 @@ public class PedestalLocker : Locker
     public void Interact(Player player) => Chamber.Interact(player);
 
     /// <summary>
-    /// Plays the Access Denied sound for the pedestal.
+    /// Plays the access denied sound for the pedestal chamber.
     /// </summary>
-    /// <param name="flags">The <see cref="DoorPermissionFlags"/> that will be shown on the keycard reader.</param>
-    public void PlayDeniedSound(DoorPermissionFlags flags = DoorPermissionFlags.None) => Chamber.PlayDeniedSound(flags);
+    public void PlayDeniedSound() => Chamber.PlayDeniedSound();
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

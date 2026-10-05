@@ -25,12 +25,16 @@ public static class Whitelist
     public static int Count => WhiteList.Users.Count;
 
     /// <summary>
-    /// Gets or sets whether the whitelist is currently enabled. This value is reset to the config one after server restart.
+    /// Gets or sets whether the whitelist is currently enabled. This value is reset to the config one after a config reload.
     /// </summary>
+    /// <remarks>
+    /// The Carl Mod server does not check the whitelist when players connect; plugins enforce it, for example from
+    /// <see cref="Events.Handlers.PlayerEvents.PreAuthenticating"/>.
+    /// </remarks>
     public static bool WhitelistEnabled
     {
-        get => WhiteList.WhitelistEnabled;
-        set => WhiteList.WhitelistEnabled = value;
+        get => ServerConsole.WhiteListEnabled;
+        set => ServerConsole.WhiteListEnabled = value;
     }
 
     /// <summary>
@@ -45,7 +49,7 @@ public static class Whitelist
     /// </summary>
     /// <param name="userId">The user id of the player.</param>
     /// <returns>Whether the player is whitelisted. Will always return true if whitelist is disabled.</returns>
-    public static bool IsWhitelisted(string userId) => WhiteList.IsWhitelisted(userId);
+    public static bool IsWhitelisted(string userId) => !WhitelistEnabled || WhiteList.IsOnWhitelist(userId);
 
     /// <summary>
     /// Reloads whitelist from the whitelist file.

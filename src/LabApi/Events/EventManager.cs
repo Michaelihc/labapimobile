@@ -30,9 +30,11 @@ public static class EventManager
         Logger.Debug("Invoking event " + eventHandler.FormatToString());
 #endif
 
-        // We iterate through all the subscribers of the event and invoke them.
-        foreach (Delegate sub in eventHandler.GetInvocationList())
+        // We iterate through all the subscribers of the event and invoke them, each isolated by its own try/catch.
+        Delegate[] subscribers = InvocationListCache.Get(eventHandler);
+        for (int i = 0; i < subscribers.Length; i++)
         {
+            Delegate sub = subscribers[i];
             try
             {
                 // We invoke the subscriber as a lab event handler.
@@ -43,7 +45,7 @@ public static class EventManager
             }
             catch (Exception e)
             {
-                Logger.Error(FormatErrorMessage(eventHandler, e));
+                Logger.Error(FormatErrorMessage(sub, e));
             }
         }
     }
@@ -68,9 +70,11 @@ public static class EventManager
         Logger.Debug("Invoking event " + eventHandler.FormatToString(args));
 #endif
 
-        // We iterate through all the subscribers of the event and invoke them.
-        foreach (Delegate sub in eventHandler.GetInvocationList())
+        // We iterate through all the subscribers of the event and invoke them, each isolated by its own try/catch.
+        Delegate[] subscribers = InvocationListCache<TEventArgs>.Get(eventHandler);
+        for (int i = 0; i < subscribers.Length; i++)
         {
+            Delegate sub = subscribers[i];
             try
             {
                 // We invoke the subscriber as a lab event handler.
@@ -81,7 +85,7 @@ public static class EventManager
             }
             catch (Exception e)
             {
-                Logger.Error(FormatErrorMessage(eventHandler, e));
+                Logger.Error(FormatErrorMessage(sub, e));
             }
         }
     }
@@ -152,5 +156,63 @@ public static class EventManager
         }
 
         return $"'{exception.GetType().Name}' occurred while invoking '{eventHandler.Method.Name}' on '{eventHandler.Target.GetType().FullName}': '{exception.Message}', stack trace:\n{exception.StackTrace}";
+    }
+
+    /// <summary>
+    /// Caches the invocation list of the last invoked <see cref="LabEventHandler"/>.
+    /// Delegates are immutable, so the cached array stays valid until the subscriber set changes.
+    /// </summary>
+    private static class InvocationListCache
+    {
+        private static Entry? _last;
+
+        public static Delegate[] Get(LabEventHandler handler)
+        {
+            Entry? last = _last;
+            if (last is not null && ReferenceEquals(last.Handler, handler))
+            {
+                return last.Subscribers;
+            }
+
+            last = new Entry(handler, handler.GetInvocationList());
+            _last = last;
+            return last.Subscribers;
+        }
+
+        private sealed class Entry(LabEventHandler handler, Delegate[] subscribers)
+        {
+            public readonly LabEventHandler Handler = handler;
+            public readonly Delegate[] Subscribers = subscribers;
+        }
+    }
+
+    /// <summary>
+    /// Caches the invocation list of the last invoked <see cref="LabEventHandler{TEventArgs}"/> per event args type,
+    /// so invoking an event does not allocate a new subscriber array each time.
+    /// </summary>
+    /// <typeparam name="TEventArgs">The type of the <see cref="EventArgs"/> of the event.</typeparam>
+    private static class InvocationListCache<TEventArgs>
+        where TEventArgs : EventArgs
+    {
+        private static Entry? _last;
+
+        public static Delegate[] Get(LabEventHandler<TEventArgs> handler)
+        {
+            Entry? last = _last;
+            if (last is not null && ReferenceEquals(last.Handler, handler))
+            {
+                return last.Subscribers;
+            }
+
+            last = new Entry(handler, handler.GetInvocationList());
+            _last = last;
+            return last.Subscribers;
+        }
+
+        private sealed class Entry(LabEventHandler<TEventArgs> handler, Delegate[] subscribers)
+        {
+            public readonly LabEventHandler<TEventArgs> Handler = handler;
+            public readonly Delegate[] Subscribers = subscribers;
+        }
     }
 }

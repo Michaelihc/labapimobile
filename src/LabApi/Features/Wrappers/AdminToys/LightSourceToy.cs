@@ -131,63 +131,20 @@ public class LightSourceToy : AdminToy
     /// <summary>
     /// Gets or sets the lights <see cref="Light.shadows"/> type.
     /// </summary>
+    /// <remarks>
+    /// Carl Mod only synchronizes whether shadows are enabled; clients render any value other than
+    /// <see cref="LightShadows.None"/> as <see cref="LightShadows.Soft"/>.
+    /// </remarks>
     public LightShadows ShadowType
     {
-        get => Base.ShadowType;
-        set => Base.NetworkShadowType = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the lights <see cref="Light.shadowStrength"/>.
-    /// </summary>
-    public float ShadowStrength
-    {
-        get => Base.ShadowStrength;
-        set => Base.NetworkShadowStrength = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the lights <see cref="Light.type"/>.
-    /// </summary>
-    public LightType Type
-    {
-        get => Base.LightType;
-        set => Base.NetworkLightType = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the lights <see cref="Light.shape"/>.
-    /// </summary>
-#pragma warning disable CS0618 // Type or member is obsolete
-    public LightShape Shape
-#pragma warning restore CS0618 // Type or member is obsolete
-    {
-        get => Base.LightShape;
-        set => Base.NetworkLightShape = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the lights <see cref="Light.spotAngle"/>.
-    /// </summary>
-    public float SpotAngle
-    {
-        get => Base.SpotAngle;
-        set => Base.NetworkSpotAngle = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the lights <see cref="Light.innerSpotAngle"/>.
-    /// </summary>
-    public float InnerSpotAngle
-    {
-        get => Base.InnerSpotAngle;
-        set => Base.NetworkInnerSpotAngle = value;
+        get => Base.LightShadows ? LightShadows.Soft : LightShadows.None;
+        set => Base.NetworkLightShadows = value != LightShadows.None;
     }
 
     /// <inheritdoc />
     public override string ToString()
     {
-        return $"[LightSourceToy: Type={Type}, Shape={Shape}, Intensity={Intensity}, Range={Range}, Color={Color}, ShadowType={ShadowType}, ShadowStrength={ShadowStrength}]";
+        return $"[LightSourceToy: Intensity={Intensity}, Range={Range}, Color={Color}, ShadowType={ShadowType}]";
     }
 
     /// <summary>

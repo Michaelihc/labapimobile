@@ -1,7 +1,7 @@
-﻿using Cassie;
 using PlayerRoles;
 using PlayerStatsSystem;
 using System;
+using VoiceLine = NineTailedFoxAnnouncer.VoiceLine;
 
 namespace LabApi.Features.Wrappers;
 
@@ -14,14 +14,9 @@ public static class Cassie
     public static bool IsSpeaking
         => Announcer.IsSpeaking;
 
-    /// <inheritdoc cref="Announcer.LineDatabase"/>
-    [Obsolete("Use Announcer.LineDatabase instead.", true)]
-    public static CassieLineDatabase? LineDatabase
-        => Announcer.LineDatabase;
-
     /// <inheritdoc cref="Announcer.AllLines"/>
     [Obsolete("Use Announcer.AllLines instead.", true)]
-    public static CassieLine[] AllLines
+    public static VoiceLine[] AllLines
         => Announcer.AllLines;
 
     /// <inheritdoc cref="Announcer.CollectionNames"/>
@@ -35,16 +30,11 @@ public static class Cassie
         => Announcer.IsValid(word);
 
     /// <inheritdoc cref="Announcer.CalculateDuration(string, bool, float)"/>
-    [Obsolete("Use Announcer.CalculateDuration(string message, CassiePlaybackModifiers playbackModifiers) instead.", true)]
+    [Obsolete("Use Announcer.CalculateDuration(string, bool, float) instead.", true)]
     public static float CalculateDuration(string message, bool rawNumber = false, float speed = 1f)
         => Announcer.CalculateDuration(message, rawNumber, speed);
 
-    /// <inheritdoc cref="Announcer.CalculateDuration(string, CassiePlaybackModifiers)"/>
-    [Obsolete("Use Announcer.CalculateDuration(string, CassiePlaybackModifiers) instead.", true)]
-    public static double CalculateDuration(string message, CassiePlaybackModifiers playbackModifiers)
-        => Announcer.CalculateDuration(message, playbackModifiers);
-
-    /// <inheritdoc cref="Announcer.Message(string, bool, bool, bool, string)"/>
+    /// <inheritdoc cref="Announcer.Message(string, string, bool, float, float)"/>
     [Obsolete("Use Announcer.Message(string message, string customSubtitles = \"\", bool playBackground = true, float priority = 0f, float glitchScale = 1f) instead.", true)]
     public static void Message(string message, bool isHeld = false, bool isNoisy = true, bool isSubtitles = true, string customSubtitles = "")
         => Announcer.Message(message, customSubtitles);
@@ -53,11 +43,6 @@ public static class Cassie
     [Obsolete("Use Announcer.Message(string, string, bool, float, float) instead.", true)]
     public static void Message(string message, string customSubtitles = "", bool playBackground = true, float priority = 0f, float glitchScale = 1f)
         => Announcer.Message(message, customSubtitles, playBackground, priority, glitchScale);
-
-    /// <inheritdoc cref="Announcer.Message(CassieTtsPayload, float, float)"/>
-    [Obsolete("Use Announcer.Message(CassieTtsPayload, float, float) instead.", true)]
-    public static void Message(CassieTtsPayload payload, float priority = 0f, float glitchScale = 1f)
-        => Announcer.Message(payload, priority, glitchScale);
 
     /// <inheritdoc cref="Announcer.GlitchyMessage(string, float, float)"/>
     [Obsolete("Use Announcer.GlitchyMessage(string, float, float) instead.", true)]
@@ -93,9 +78,4 @@ public static class Cassie
     [Obsolete("Use Announcer.ConvertScp(string, out string, out string) instead.", true)]
     public static void ConvertScp(string roleName, out string withoutSpace, out string withSpace)
         => Announcer.ConvertScp(roleName, out withoutSpace, out withSpace);
-
-    /// <inheritdoc cref="Announcer.CalculateDuration(ReadOnlySpan{char}, CassiePlaybackModifiers, out double)"/>
-    [Obsolete("Use Announcer.CalculateDuration(ReadOnlySpan{char}, CassiePlaybackModifiers, out double) instead.", true)]
-    public static void CalculateDuration(ReadOnlySpan<char> remaining, CassiePlaybackModifiers modifiers, out double time)
-        => Announcer.CalculateDuration(remaining, modifiers, out time);
 }

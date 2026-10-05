@@ -4,12 +4,12 @@ using InventorySystem.Items;
 using InventorySystem.Items.Armor;
 using InventorySystem.Items.Coin;
 using InventorySystem.Items.Firearms;
+using InventorySystem.Items.Pickups;
 using InventorySystem.Items.Usables;
 using NorthwoodLib.Pools;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using UnityEngine;
 using Logger = LabApi.Features.Console.Logger;
 
@@ -91,14 +91,19 @@ public class Item
             return true;
         }
 
-        item = List.FirstOrDefault(x => x.Serial == serial);
-        if (item == null)
+        foreach (Item candidate in Dictionary.Values)
         {
-            return false;
+            if (candidate.Serial != serial)
+            {
+                continue;
+            }
+
+            item = candidate;
+            SerialsCache[serial] = item;
+            return true;
         }
 
-        SerialsCache[serial] = item;
-        return true;
+        return false;
     }
 
     /// <summary>
@@ -109,7 +114,14 @@ public class Item
     public static List<Item> GetAll(ItemType type)
     {
         List<Item> list = ListPool<Item>.Shared.Rent();
-        list.AddRange(List.Where(n => n.Type == type));
+        foreach (Item item in Dictionary.Values)
+        {
+            if (item.Type == type)
+            {
+                list.Add(item);
+            }
+        }
+
         return list;
     }
 
@@ -121,20 +133,34 @@ public class Item
     public static List<Item> GetAll(ItemCategory category)
     {
         List<Item> list = ListPool<Item>.Shared.Rent();
-        list.AddRange(List.Where(n => n.Category == category));
+        foreach (Item item in Dictionary.Values)
+        {
+            if (item.Category == category)
+            {
+                list.Add(item);
+            }
+        }
+
         return list;
     }
 
     /// <summary>
-    /// Initializes the <see cref="Item"/> class by subscribing to <see cref="ItemBase"/> events and registers derived wrappers.
+    /// Initializes the <see cref="Item"/> class by subscribing to the game's inventory events and registers derived wrappers.
     /// </summary>
+    /// <remarks>
+    /// The Carl Mod build has no <c>ItemBase.OnItemAdded</c>/<c>OnItemRemoved</c>; items are tracked through
+    /// <see cref="InventoryExtensions.OnItemAdded"/>/<see cref="InventoryExtensions.OnItemRemoved"/> and the
+    /// inventory of a destroyed player is released through <see cref="ReferenceHub.OnPlayerRemoved"/>.
+    /// </remarks>
     [InitializeWrapper]
     internal static void Initialize()
     {
         Dictionary.Clear();
+        SerialsCache.Clear();
 
-        ItemBase.OnItemAdded += AddItem;
-        ItemBase.OnItemRemoved += RemoveItem;
+        InventoryExtensions.OnItemAdded += OnInventoryItemAdded;
+        InventoryExtensions.OnItemRemoved += OnInventoryItemRemoved;
+        ReferenceHub.OnPlayerRemoved += OnHubRemoved;
 
         Register<ItemBase>(x => new Item(x));
 
@@ -145,36 +171,26 @@ public class Item
         Register<Adrenaline>(x => new AdrenalineItem(x));
         Register<Medkit>(x => new MedkitItem(x));
         Register<Scp207>(x => new Scp207Item(x));
-        Register<AntiScp207>(x => new AntiScp207Item(x));
-        Register<Scp021J>(x => new Scp021JItem(x));
 
         Register<InventorySystem.Items.Usables.UsableItem>(x => new UsableItem(x));
         Register<InventorySystem.Items.Usables.Scp1576.Scp1576Item>(x => new Scp1576Item(x));
         Register<InventorySystem.Items.Usables.Scp330.Scp330Bag>(x => new Scp330Item(x));
         Register<InventorySystem.Items.Usables.Scp244.Scp244Item>(x => new Scp244Item(x));
         Register<Scp268>(x => new Scp268Item(x));
-        Register<InventorySystem.Items.Usables.Scp1344.Scp1344Item>(x => new Scp1344Item(x));
-        Register<InventorySystem.Items.Scp1509.Scp1509Item>(x => new Scp1509Item(x));
 
         Register<Firearm>(FirearmItem.CreateFirearmWrapper);
         Register<ParticleDisruptor>(FirearmItem.CreateFirearmWrapper);
 
         Register<InventorySystem.Items.Jailbird.JailbirdItem>(x => new JailbirdItem(x));
         Register<Coin>(x => new CoinItem(x));
-        Register<InventorySystem.Items.MarshmallowMan.MarshmallowItem>(x => new MarshmallowItem(x));
 
-        Register<InventorySystem.Items.ToggleableLights.ToggleableLightItemBase>(x => new LightItem(x));
-        Register<InventorySystem.Items.ToggleableLights.Flashlight.FlashlightItem>(x => new FlashlightItem(x));
-        Register<InventorySystem.Items.ToggleableLights.Lantern.LanternItem>(x => new LanternItem(x));
+        Register<InventorySystem.Items.Flashlight.FlashlightItem>(x => new FlashlightItem(x));
 
         Register<InventorySystem.Items.Radio.RadioItem>(x => new RadioItem(x));
         Register<InventorySystem.Items.Firearms.Ammo.AmmoItem>(x => new AmmoItem(x));
         Register<BodyArmor>(x => new BodyArmorItem(x));
         Register<InventorySystem.Items.ThrowableProjectiles.ThrowableItem>(x => new ThrowableItem(x));
-        Register<InventorySystem.Items.ThrowableProjectiles.SnowballItem>(x => new SnowballItem(x));
         Register<InventorySystem.Items.Keycards.KeycardItem>(x => new KeycardItem(x));
-        Register<InventorySystem.Items.Keycards.ChaosKeycardItem>(x => new KeycardItem(x));
-        Register<InventorySystem.Items.Keycards.SingleUseKeycardItem>(x => new KeycardItem(x));
         Register<InventorySystem.Items.MicroHID.MicroHIDItem>(x => new MicroHIDItem(x));
     }
 
@@ -186,15 +202,55 @@ public class Item
     protected static Item CreateItemWrapper(ItemBase item)
     {
         Type targetType = item.GetType();
-        if (!TypeWrappers.TryGetValue(targetType, out Func<ItemBase, Item> ctorFunc))
+        if (!TypeWrappers.TryGetValue(targetType, out Func<ItemBase, Item>? ctorFunc))
         {
+            // Fork item classes are often concrete subclasses of the type the official game uses directly
+            // (e.g. AutomaticFirearm, Shotgun and Revolver for Firearm), so resolve through the base types once
+            // and cache the result.
+            for (Type? baseType = targetType.BaseType; baseType != null && baseType != typeof(object); baseType = baseType.BaseType)
+            {
+                if (TypeWrappers.TryGetValue(baseType, out ctorFunc))
+                {
+                    break;
+                }
+            }
+
+            if (ctorFunc == null)
+            {
 #if DEBUG
-            Logger.Warn($"Unable to find LabApi wrapper for {nameof(Item)} {targetType.Name}, backup up to base constructor!");
+                Logger.Warn($"Unable to find LabApi wrapper for {nameof(Item)} {targetType.Name}, backup up to base constructor!");
 #endif
-            return new Item(item);
+                return new Item(item);
+            }
+
+            TypeWrappers[targetType] = ctorFunc;
         }
 
         return ctorFunc.Invoke(item);
+    }
+
+    private static void OnInventoryItemAdded(ReferenceHub hub, ItemBase item, ItemPickupBase pickup) => AddItem(item);
+
+    private static void OnInventoryItemRemoved(ReferenceHub hub, ItemBase item, ItemPickupBase pickup) => RemoveItem(item);
+
+    /// <summary>
+    /// Releases the wrappers of a destroyed player's items, which the fork destroys together with the player object.
+    /// </summary>
+    /// <param name="hub">The destroyed player.</param>
+    private static void OnHubRemoved(ReferenceHub hub)
+    {
+        if (hub == null || hub.inventory == null || hub.inventory.UserInventory == null)
+        {
+            return;
+        }
+
+        foreach (ItemBase item in hub.inventory.UserInventory.Items.Values)
+        {
+            if (item != null)
+            {
+                RemoveItem(item);
+            }
+        }
     }
 
     /// <summary>
@@ -338,11 +394,6 @@ public class Item
     }
 
     /// <summary>
-    /// Gets the item's reason for being added to the inventory.
-    /// </summary>
-    public ItemAddReason AddReason => Base.ServerAddReason;
-
-    /// <summary>
     /// Gets whether the item is being held.
     /// </summary>
     public bool IsEquipped => Base.IsEquipped;
@@ -353,7 +404,7 @@ public class Item
     /// <remarks>
     /// Only applies to player interactions, forcefully equipping an item is always possible.
     /// </remarks>
-    public bool CanEquip => Base.AllowEquip;
+    public bool CanEquip => Base.CanEquip();
 
     /// <summary>
     /// Gets whether the item can be holstered.
@@ -362,15 +413,16 @@ public class Item
     /// An item is holstered when either changing to another item or deflecting the item.
     /// Only applies to player interactions, forcefully holstering an item is always possible.
     /// </remarks>
-    public bool CanHolster => Base.AllowHolster;
+    public bool CanHolster => Base.CanHolster();
 
     /// <summary>
     /// Gets whether the item can be dropped.
     /// </summary>
     /// <remarks>
     /// Only applies to player interactions, forcefully dropping an item is always possible.
+    /// The Carl Mod build has no separate drop restriction: a player may drop an item whenever it can be holstered.
     /// </remarks>
-    public bool CanDrop => Base.AllowDropping;
+    public bool CanDrop => Base.CanHolster();
 
     /// <summary>
     /// Gets the item's current owner.
@@ -396,7 +448,7 @@ public class Item
     /// Drops this item from player's inventory.
     /// </summary>
     /// <returns>The dropped item as a <see cref="Pickup"/>.</returns>
-    public Pickup DropItem() => Pickup.Get(Base.ServerDropItem(true));
+    public Pickup DropItem() => Pickup.Get(Base.ServerDropItem());
 
     /// <summary>
     /// Moves the item to the specified players inventory.

@@ -109,10 +109,8 @@ public class Hazard
     [InitializeWrapper]
     internal static void Initialize()
     {
+        // Carl Mod has no EnvironmentalHazard.OnAdded/OnRemoved; the lifecycle patches call AddHazard/RemoveHazard.
         Dictionary.Clear();
-
-        EnvironmentalHazard.OnAdded += AddHazard;
-        EnvironmentalHazard.OnRemoved += RemoveHazard;
 
         Register<SinkholeEnvironmentalHazard>(x => new SinkholeHazard(x));
         Register<TantrumEnvironmentalHazard>(x => new TantrumHazard(x));
@@ -163,7 +161,7 @@ public class Hazard
     /// A private method to handle the creation of new hazards in the server.
     /// </summary>
     /// <param name="hazard">The created <see cref="EnvironmentalHazard"/> instance.</param>
-    private static void AddHazard(EnvironmentalHazard hazard)
+    internal static void AddHazard(EnvironmentalHazard hazard)
     {
         if (!Dictionary.ContainsKey(hazard))
         {
@@ -175,7 +173,7 @@ public class Hazard
     /// A private method to handle the removal of hazards from the server.
     /// </summary>
     /// <param name="hazard">The to be destroyed <see cref="EnvironmentalHazard"/> instance.</param>
-    private static void RemoveHazard(EnvironmentalHazard hazard)
+    internal static void RemoveHazard(EnvironmentalHazard hazard)
     {
         if (Dictionary.Remove(hazard, out Hazard item))
         {
@@ -247,13 +245,11 @@ public class Hazard
 
     /// <summary>
     /// Gets whether this environmental hazard and it's effects is enabled.
-    /// Setting to false also stops the decay of temporary hazards.
     /// </summary>
-    public virtual bool IsActive
-    {
-        get => Base.IsActive;
-        set => Base.IsActive = value;
-    }
+    /// <remarks>
+    /// Carl Mod hazards expose this read-only; temporary hazards become inactive once destroyed.
+    /// </remarks>
+    public virtual bool IsActive => Base.IsActive;
 
     /// <summary>
     /// Gets or sets the origin point from which the AoE effect will start.

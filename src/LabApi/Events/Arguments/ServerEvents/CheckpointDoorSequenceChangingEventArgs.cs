@@ -1,7 +1,7 @@
 ﻿using LabApi.Events.Arguments.Interfaces;
 using LabApi.Features.Wrappers;
 using System;
-using static Interactables.Interobjects.CheckpointDoor;
+using SequenceState = Interactables.Interobjects.CheckpointDoor.CheckpointSequenceStage;
 
 namespace LabApi.Events.Arguments.ServerEvents;
 

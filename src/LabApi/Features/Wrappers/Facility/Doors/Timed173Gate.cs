@@ -67,7 +67,7 @@ public class Timed173Gate : Gate
     /// <summary>
     /// Gets the current stopwatch used to time to gate opening.
     /// </summary>
-    public Stopwatch Stopwatch => Base.Stopwatch;
+    public Stopwatch Stopwatch => Base._stopwatch;
 
     /// <summary>
     /// Gets or sets whether the gate will open if an SCP-173 is present.
@@ -77,8 +77,8 @@ public class Timed173Gate : Gate
     /// </remarks>
     public bool SmartOpen
     {
-        get => Base.SmartOpen;
-        set => Base.SmartOpen = value;
+        get => Base._smartOpen;
+        set => Base._smartOpen = value;
     }
 
     /// <summary>
@@ -86,8 +86,8 @@ public class Timed173Gate : Gate
     /// </summary>
     public float Delay
     {
-        get => Base.TimeMark;
-        set => Base.TimeMark = value;
+        get => Base._timeMark;
+        set => Base._timeMark = value;
     }
 
     /// <summary>

@@ -12,7 +12,7 @@ namespace LabApi.Loader.Features.Paths;
 public static class PathManager
 {
     private const string SecretLabFolderName = "SCP Secret Laboratory";
-    private const string LabApiFolderName = "LabAPI";
+    private const string LabApiFolderName = "LabAPI-Mobile"; // Separate from official SL's LabAPI folder in the shared AppData.
     private const string PluginsFolderName = "plugins";
     private const string DependenciesFolderName = "dependencies";
     private const string ConfigsFolderName = "configs";

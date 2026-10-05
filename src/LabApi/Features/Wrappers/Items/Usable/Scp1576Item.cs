@@ -1,5 +1,4 @@
-﻿using CustomPlayerEffects;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using BaseScp1576Item = InventorySystem.Items.Usables.Scp1576.Scp1576Item;
@@ -24,7 +23,7 @@ public class Scp1576Item : UsableItem
     /// <summary>
     /// The set of players who are able to transmit their voice to spectators using Scp1576.
     /// </summary>
-    public static IEnumerable<Player> TransmitterList => Player.List.Where(player => player.HasEffect<Scp1576>());
+    public static IEnumerable<Player> TransmitterList => BaseScp1576Item.ValidatedTransmitters.Select(x => Player.Get(x));
 
     /// <summary>
     /// The set of players who are able to receive hear spectators talking through Scp1576.

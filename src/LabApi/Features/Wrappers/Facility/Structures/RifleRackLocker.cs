@@ -47,9 +47,9 @@ public class RifleRackLocker : Locker
     public bool CanInteract => MainChamber.CanInteract;
 
     /// <summary>
-    /// Gets or sets the <see cref="DoorPermissionFlags"/> required by the player to open/close the rifle rack.
+    /// Gets or sets the <see cref="KeycardPermissions"/> required by the player to open/close the rifle rack.
     /// </summary>
-    public DoorPermissionFlags RequiredPermissions
+    public KeycardPermissions RequiredPermissions
     {
         get => MainChamber.RequiredPermissions;
         set => MainChamber.RequiredPermissions = value;

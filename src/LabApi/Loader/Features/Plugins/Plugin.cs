@@ -1,4 +1,4 @@
-using LabApi.Loader.Features.Plugins.Configuration;
+﻿using LabApi.Loader.Features.Plugins.Configuration;
 using LabApi.Loader.Features.Plugins.Enums;
 using System;
 
@@ -39,18 +39,6 @@ public abstract class Plugin
     /// The <see cref="LoadPriority"/> of the <see cref="Plugin"/>.
     /// </summary>
     public virtual LoadPriority Priority => LoadPriority.Medium;
-
-    /// <summary>
-    /// Whether this plugin is considered transparent.<br/>
-    /// A plugin can be marked as transparent if the server’s modifications are strictly limited to non-intrusive features that do not affect gameplay balance or make significant alterations to the user interface.
-    /// Examples of transparent modifications are: admin tools, automated timed broadcasts for tips, message of the day or other administrative utilities.<br/>
-    /// For more information, see article 5.2 in the <see href="https://scpslgame.com/csg">official documentation</see>.
-    /// </summary>
-    /// <remarks>
-    /// You can keep using the 'transparently modded' flag during occasional short events organized and supervised by
-    /// Server Staff, regardless of the Modifications used for these events.
-    /// </remarks>
-    public virtual bool IsTransparent => false;
 
     /// <summary>
     /// The <see cref="Properties"/> of the <see cref="Plugin"/>.

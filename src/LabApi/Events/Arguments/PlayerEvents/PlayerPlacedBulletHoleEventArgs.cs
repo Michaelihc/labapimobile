@@ -1,4 +1,4 @@
-﻿using Decals;
+using Knife.DeferredDecals;
 using LabApi.Features.Wrappers;
 using System;
 using UnityEngine;

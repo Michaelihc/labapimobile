@@ -18,8 +18,8 @@ public class Window
     [InitializeWrapper]
     internal static void Initialize()
     {
-        BreakableWindow.OnAdded += OnAdded;
-        BreakableWindow.OnDestroyed += OnRemoved;
+        // Carl Mod has no BreakableWindow.OnAdded/OnDestroyed; the lifecycle patches call OnAdded/OnRemoved.
+        Dictionary.Clear();
     }
 
     /// <summary>
@@ -80,17 +80,17 @@ public class Window
     /// <summary>
     /// Gets whether the window is broken.
     /// </summary>
-    public bool IsBroken => Base.NetworkIsBroken;
+    public bool IsBroken => Base.isBroken;
 
     /// <summary>
     /// Gets or sets window's health.
     /// </summary>
     public float Health
     {
-        get => Base.Health;
+        get => Base.health;
         set
         {
-            Base.Damage(Base.Health - value, new CustomReasonDamageHandler(string.Empty), Vector3.zero);
+            Base.Damage(Base.health - value, new CustomReasonDamageHandler(string.Empty), Vector3.zero);
         }
     }
 
@@ -146,7 +146,7 @@ public class Window
     /// Private method to handle the creation of new windows in the server.
     /// </summary>
     /// <param name="structure">The <see cref="BreakableWindow"/> that was created.</param>
-    private static void OnAdded(BreakableWindow structure)
+    internal static void OnAdded(BreakableWindow structure)
     {
         if (!Dictionary.ContainsKey(structure))
             _ = new Window(structure);
@@ -156,7 +156,7 @@ public class Window
     /// Private method to handle the removal of windows from the server.
     /// </summary>
     /// <param name="spawnableStructure">The <see cref="BreakableWindow"/> that was removed.</param>
-    private static void OnRemoved(BreakableWindow spawnableStructure)
+    internal static void OnRemoved(BreakableWindow spawnableStructure)
     {
         if (Dictionary.TryGetValue(spawnableStructure, out Window structure))
             structure.OnRemove();

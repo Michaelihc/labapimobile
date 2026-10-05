@@ -1,54 +1,25 @@
-﻿using Respawning.Config;
-using Respawning.Waves;
+using Respawning;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
-/// A class representing <see cref="ChaosSpawnWave">primary Chaos Insurgency spawn wave</see>.
+/// A class representing <see cref="ChaosInsurgencySpawnHandler">primary Chaos Insurgency spawn wave</see>.
 /// </summary>
+/// <remarks>
+/// The Carl Mod game spawns a fixed composition (20% marauders, 30% of the rest repressors, riflemen), so the
+/// official logicer and shotgun percentages are not available.
+/// </remarks>
 public class ChaosWave : RespawnWave
 {
-    /// <inheritdoc cref="RespawnWave(TimeBasedWave)"/>
-    internal ChaosWave(ChaosSpawnWave wave)
-        : base(wave)
+    /// <inheritdoc cref="RespawnWave(SpawnableTeamHandlerBase, SpawnableTeamType)"/>
+    internal ChaosWave(ChaosInsurgencySpawnHandler wave)
+        : base(wave, SpawnableTeamType.ChaosInsurgency)
     {
         Base = wave;
     }
 
     /// <summary>
-    /// The base <see cref="ChaosSpawnWave"/> object.
+    /// The base <see cref="ChaosInsurgencySpawnHandler"/> object.
     /// </summary>
-    public new ChaosSpawnWave Base { get; private set; }
-
-    /// <summary>
-    /// Percentage of chaos suppressors per wave.
-    /// </summary>
-    public float LogicerPercent
-    {
-        get => Base.LogicerPercent;
-        set => Base.LogicerPercent = value;
-    }
-
-    /// <summary>
-    /// Percentage of chaos marauders per wave.
-    /// </summary>
-    public float ShotgunPercent
-    {
-        get => Base.ShotgunPercent;
-        set => Base.ShotgunPercent = value;
-    }
-
-    /// <inheritdoc/>
-    public override int MaxWaveSize
-    {
-        get => Base.MaxWaveSize;
-        set
-        {
-            float percentageValue = (float)value / ReferenceHub.AllHubs.Count;
-            if (Base.Configuration is PrimaryWaveConfig<ChaosSpawnWave> config)
-            {
-                config.SizePercentage = percentageValue;
-            }
-        }
-    }
+    public new ChaosInsurgencySpawnHandler Base { get; private set; }
 }

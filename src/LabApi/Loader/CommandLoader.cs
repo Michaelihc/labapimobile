@@ -24,8 +24,9 @@ public static class CommandLoader
     /// </summary>
     public static Dictionary<Type, List<CommandHandler>> CommandHandlers { get; } = new()
     {
-        // The server console command handler.
-        [typeof(GameConsoleCommandHandler)] = [GameCore.Console.ConsoleCommandHandler],
+        // The server console command handler. Carl Mod keeps it on the GameCore.Console instance, which may not exist yet;
+        // Events/Patches/Core/GameConsoleCommandHandlerPatch.cs attaches it once the console wakes.
+        [typeof(GameConsoleCommandHandler)] = GameCore.Console.Singleton != null ? [GameCore.Console.Singleton.ConsoleCommandHandler] : [],
 
         // The remote admin command handler.
         [typeof(RemoteAdminCommandHandler)] = [CommandProcessor.RemoteAdminCommandHandler],
@@ -311,5 +312,63 @@ public static class CommandLoader
         // We register all commands in the LabAPI assembly.
         // We convert it to an array since IEnumerable are lazy and need to be iterated through to be executed.
         LabApiCommands = RegisterCommands(Assembly.GetExecutingAssembly(), "LabApi").ToArray();
+    }
+
+    /// <summary>
+    /// Adds the server console command handler once Carl Mod's <see cref="GameCore.Console"/> exists and registers the
+    /// LabAPI and plugin commands that target it.
+    /// </summary>
+    /// <param name="handler">The console's <see cref="GameConsoleCommandHandler"/>.</param>
+    internal static void AttachGameConsoleHandler(GameConsoleCommandHandler handler)
+    {
+        List<CommandHandler> handlers = CommandHandlers[typeof(GameConsoleCommandHandler)];
+        if (!handlers.Contains(handler))
+        {
+            handlers.Add(handler);
+        }
+
+        ReregisterCommands(handler);
+    }
+
+    /// <summary>
+    /// Registers the LabAPI and plugin commands that target the given game command handler again.
+    /// </summary>
+    /// <param name="handler">The game command handler that was cleared and rebuilt.</param>
+    /// <remarks>
+    /// Carl Mod's <c>refreshcommands</c> clears <see cref="RemoteAdminCommandHandler"/> or <see cref="GameConsoleCommandHandler"/>
+    /// and reloads only the game's own commands. Commands that plugins registered manually, without
+    /// <see cref="CommandHandlerAttribute"/>, are not tracked and are not restored.
+    /// </remarks>
+    internal static void ReregisterCommands(CommandHandler handler)
+    {
+        Type handlerType = handler.GetType();
+
+        if (LabApiCommands != null)
+        {
+            ReregisterCommands(LabApiCommands, handler, handlerType, "LabApi");
+        }
+
+        foreach (KeyValuePair<Plugin, IEnumerable<ICommand>> pair in RegisteredCommands)
+        {
+            ReregisterCommands(pair.Value, handler, handlerType, pair.Key.Name);
+        }
+    }
+
+    private static void ReregisterCommands(IEnumerable<ICommand> commands, CommandHandler handler, Type handlerType, string logName)
+    {
+        foreach (ICommand command in commands)
+        {
+            foreach (CustomAttributeData attributeData in command.GetType().GetCustomAttributesData())
+            {
+                if (attributeData.AttributeType != typeof(CommandHandlerAttribute)
+                    || (Type)attributeData.ConstructorArguments[0].Value != handlerType)
+                {
+                    continue;
+                }
+
+                TryRegisterCommand(command, handler, logName);
+                break;
+            }
+        }
     }
 }

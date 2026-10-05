@@ -1,4 +1,5 @@
-﻿using InventorySystem.Items.Usables;
+﻿using InventorySystem;
+using InventorySystem.Items.Usables;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using UnityEngine;
@@ -63,9 +64,14 @@ public class UsableItem : Item
     public bool IsUsing
     {
         get => Base.IsUsing;
-        set => UsableItemsController.ServerEmulateMessage(
-            Serial,
-            value ? StatusMessage.StatusType.Start : StatusMessage.StatusType.Cancel);
+        set
+        {
+            // The fork has no UsableItemsController.ServerEmulateMessage; feed the request through the same handler.
+            if (InventoryExtensions.TryGetHubHoldingSerial(Serial, out ReferenceHub hub) && hub.connectionToClient != null)
+            {
+                UsableItemsController.ServerReceivedStatus(hub.connectionToClient, new StatusMessage(value ? StatusMessage.StatusType.Start : StatusMessage.StatusType.Cancel, Serial));
+            }
+        }
     }
 
     /// <summary>
@@ -137,13 +143,6 @@ public class UsableItem : Item
     /// Does not work on all items.
     /// </remarks>
     public void Use() => Base.ServerOnUsingCompleted();
-
-    /// <summary>
-    /// Tries to get the audible range in meters for the sound being emitted.
-    /// </summary>
-    /// <param name="range">The sounds range in meters.</param>
-    /// <returns>Returns true if item is being used, otherwise false.</returns>
-    public bool TryGetSoundEmissionRange(out float range) => Base.TryGetSoundEmissionRange(out range);
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

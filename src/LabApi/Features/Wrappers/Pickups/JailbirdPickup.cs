@@ -1,5 +1,4 @@
-﻿using InventorySystem.Items.Jailbird;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using BaseJailbirdPickup = InventorySystem.Items.Jailbird.JailbirdPickup;
 
@@ -72,15 +71,6 @@ public class JailbirdPickup : Pickup
     {
         get => Base.TotalCharges;
         set => Base.TotalCharges = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the visual wear state.
-    /// </summary>
-    public JailbirdWearState WearState
-    {
-        get => Base.Wear;
-        set => Base.NetworkWear = value;
     }
 
     /// <summary>

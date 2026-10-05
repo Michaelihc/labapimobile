@@ -106,7 +106,8 @@ public class Pickup
             return null;
         }
 
-        ItemPickupBase newPickupBase = InventoryExtensions.ServerCreatePickup(itemBase, new PickupSyncInfo(type, itemBase.Weight), position, rotation, false);
+        // The fork's ServerCreatePickup extension never touches its Inventory argument.
+        ItemPickupBase newPickupBase = InventoryExtensions.ServerCreatePickup(null!, itemBase, new PickupSyncInfo(type, position, rotation, itemBase.Weight), false);
         newPickupBase.transform.localScale = scale;
 
         if (networkSpawn)
@@ -126,14 +127,12 @@ public class Pickup
         ItemPickupBase.OnPickupAdded += AddPickup;
         ItemPickupBase.OnPickupDestroyed += RemovePickup;
 
+        // Fork grenades without a dedicated wrapper (e.g. EffectGrenade) resolve to this through their base types.
+        Register<TimeGrenade>(n => new TimedGrenadeProjectile(n));
         Register<FlashbangGrenade>(n => new FlashbangProjectile(n));
         Register<ExplosionGrenade>(n => new ExplosiveGrenadeProjectile(n));
         Register((InventorySystem.Items.ThrowableProjectiles.Scp018Projectile n) => new Scp018Projectile(n));
         Register((InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile n) => new Scp2176Projectile(n));
-        Register((InventorySystem.Items.ThrowableProjectiles.SingleTrajectoryProjectile n) => new SingleTrajectoryProjectile(n));
-        Register((InventorySystem.Items.ThrowableProjectiles.FlybyDetectorProjectile n) => new FlybyDetectorProjectile(n));
-        Register((InventorySystem.Items.ThrowableProjectiles.Scp2536Projectile n) => new Scp2536Projectile(n));
-        Register((InventorySystem.Items.ThrowableProjectiles.SnowballProjectile n) => new SnowballProjectile(n));
 
         Register<InventorySystem.Items.Firearms.Ammo.AmmoPickup>(x => new AmmoPickup(x));
         Register<InventorySystem.Items.Armor.BodyArmorPickup>(x => new BodyArmorPickup(x));
@@ -145,7 +144,6 @@ public class Pickup
         Register<InventorySystem.Items.Usables.Scp1576.Scp1576Pickup>(x => new Scp1576Pickup(x));
         Register<InventorySystem.Items.Usables.Scp244.Scp244DeployablePickup>(x => new Scp244Pickup(x));
         Register<InventorySystem.Items.Usables.Scp330.Scp330Pickup>(x => new Scp330Pickup(x));
-        Register<InventorySystem.Items.Scp1509.Scp1509Pickup>(x => new Scp1509Pickup(x));
         Register<InventorySystem.Items.ThrowableProjectiles.TimedGrenadePickup>(x => new TimedGrenadePickup(x));
         Register<CollisionDetectionPickup>(x => new Pickup(x));
     }
@@ -157,12 +155,23 @@ public class Pickup
     /// <returns>The newly created wrapper.</returns>
     protected static Pickup CreateItemWrapper(ItemPickupBase pickupBase)
     {
-        if (TypeWrappers.TryGetValue(pickupBase.GetType(), out Func<ItemPickupBase, Pickup> ctorFunc))
+        Type targetType = pickupBase.GetType();
+        if (TypeWrappers.TryGetValue(targetType, out Func<ItemPickupBase, Pickup>? ctorFunc))
         {
             return ctorFunc(pickupBase);
         }
 
-        Console.Logger.Warn($"Failed to find pickup wrapper for type {pickupBase.GetType()}");
+        // Resolve unregistered subclasses through their base types once and cache the result.
+        for (Type? baseType = targetType.BaseType; baseType != null && baseType != typeof(object); baseType = baseType.BaseType)
+        {
+            if (TypeWrappers.TryGetValue(baseType, out ctorFunc))
+            {
+                TypeWrappers[targetType] = ctorFunc;
+                return ctorFunc(pickupBase);
+            }
+        }
+
+        Console.Logger.Warn($"Failed to find pickup wrapper for type {targetType}");
         return new Pickup(pickupBase);
     }
 
@@ -177,7 +186,10 @@ public class Pickup
             if (!Dictionary.ContainsKey(pickup))
             {
                 Pickup wrapper = CreateItemWrapper(pickup);
-                ServerEvents.OnPickupCreated(new PickupCreatedEventArgs(wrapper));
+                if (ServerEvents.HasPickupCreated)
+                {
+                    ServerEvents.OnPickupCreated(new PickupCreatedEventArgs(wrapper));
+                }
             }
         }
         catch (Exception e)
@@ -199,7 +211,10 @@ public class Pickup
                 item.OnRemove();
             }
 
-            ServerEvents.OnPickupDestroyed(new PickupDestroyedEventArgs(item));
+            if (ServerEvents.HasPickupDestroyed)
+            {
+                ServerEvents.OnPickupDestroyed(new PickupDestroyedEventArgs(item));
+            }
         }
         catch (Exception e)
         {
@@ -227,7 +242,7 @@ public class Pickup
         Base = itemPickupBase;
         GameObject = itemPickupBase.gameObject;
         Transform = itemPickupBase.transform;
-        IsPrefab = InventoryItemLoader.TryGetItem(itemPickupBase.ItemId.TypeId, out ItemBase prefab) && prefab.PickupDropModel == itemPickupBase;
+        IsPrefab = InventoryItemLoader.TryGetItem(itemPickupBase.Info.ItemId, out ItemBase prefab) && prefab.PickupDropModel == itemPickupBase;
 
         if (CanCache)
         {
@@ -257,26 +272,17 @@ public class Pickup
     public NetworkIdentity NetworkIdentity => Base.netIdentity;
 
     /// <summary>
-    /// THe <see cref="PickupStandardPhysics"/> of the pickup.
+    /// Gets the pickup's <see cref="IPickupPhysicsModule"/>.
     /// </summary>
     /// <remarks>
-    /// Will be null if the <see cref="PickupPhysicsModule"/> is not a <see cref="InventorySystem.Items.Pickups.PickupStandardPhysics"/> e.g. when SCP018 it is in its "Activated" state and uses an alternate physics module.
-    /// Use <see cref="PhysicsModule"/> instead for those cases.
+    /// The Carl Mod build uses the pre-14.0 <see cref="IPickupPhysicsModule"/> interface in place of <c>PickupPhysicsModule</c>.
     /// </remarks>
-    public PickupStandardPhysics? PickupStandardPhysics => Base.PhysicsModule as PickupStandardPhysics;
-
-    /// <summary>
-    /// Gets the pickup's <see cref="PickupPhysicsModule"/>.
-    /// </summary>
-    public PickupPhysicsModule PhysicsModule => Base.PhysicsModule;
+    public IPickupPhysicsModule PhysicsModule => Base.PhysicsModule;
 
     /// <summary>
     /// Gets the pickup's <see cref="UnityEngine.Rigidbody"/>.
     /// </summary>
-    /// <remarks>
-    /// Null if <see cref="PickupStandardPhysics"/> is null.
-    /// </remarks>
-    public Rigidbody? Rigidbody => PickupStandardPhysics?.Rb;
+    public Rigidbody? Rigidbody => Base.RigidBody;
 
     /// <summary>
     /// Gets the pickup's <see cref="UnityEngine.Transform"/>.
@@ -326,10 +332,10 @@ public class Pickup
     /// </summary>
     public float Weight
     {
-        get => Base.Info.WeightKg;
+        get => Base.Info.Weight;
         set => Base.NetworkInfo = Base.Info with
         {
-            WeightKg = value,
+            Weight = value,
         };
     }
 
@@ -362,8 +368,12 @@ public class Pickup
     /// </summary>
     public Vector3 Position
     {
-        get => Base.Position;
-        set => Base.Position = value;
+        get => Transform.position;
+        set
+        {
+            Transform.position = value;
+            Base.RefreshPositionAndRotation();
+        }
     }
 
     /// <summary>
@@ -371,8 +381,12 @@ public class Pickup
     /// </summary>
     public Quaternion Rotation
     {
-        get => Base.Rotation;
-        set => Base.Rotation = value;
+        get => Transform.rotation;
+        set
+        {
+            Transform.rotation = value;
+            Base.RefreshPositionAndRotation();
+        }
     }
 
     /// <summary>

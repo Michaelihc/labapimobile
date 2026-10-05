@@ -1,5 +1,4 @@
 ﻿using Interactables.Interobjects;
-using Interactables.Interobjects.DoorUtils;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
@@ -49,12 +48,6 @@ public class BulkheadDoor : Gate
         : base(pryableDoor)
     {
         Base = pryableDoor;
-        DoorCrusherExtension extension = pryableDoor.gameObject.GetComponent<DoorCrusherExtension>();
-        if (extension != null)
-        {
-            Crusher = new DoorCrusher(extension);
-        }
-
         if (CanCache)
         {
             Dictionary.Add(pryableDoor, this);
@@ -65,14 +58,6 @@ public class BulkheadDoor : Gate
     /// The base <see cref="PryableDoor"/> object.
     /// </summary>
     public new PryableDoor Base { get; }
-
-    /// <summary>
-    /// The base <see cref="DoorCrusherExtension"/> component.
-    /// </summary>
-    /// <remarks>
-    /// Can be null if bulkhead door crushing was disabled in the config.
-    /// </remarks>
-    public DoorCrusher? Crusher { get; }
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

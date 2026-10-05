@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using BaseFlashlightItem = InventorySystem.Items.ToggleableLights.Flashlight.FlashlightItem;
+using BaseFlashlightItem = InventorySystem.Items.Flashlight.FlashlightItem;
 
 namespace LabApi.Features.Wrappers;
 
@@ -25,7 +25,7 @@ public class FlashlightItem : LightItem
     /// <param name="baseFlashlightItem">The <see cref="Base"/> of the item.</param>
     /// <returns>The requested item or null.</returns>
     [return: NotNullIfNotNull(nameof(baseFlashlightItem))]
-    public static FlashlightItem? Get(BaseFlashlightItem? baseFlashlightItem)
+    public static new FlashlightItem? Get(BaseFlashlightItem? baseFlashlightItem)
     {
         if (baseFlashlightItem == null)
         {

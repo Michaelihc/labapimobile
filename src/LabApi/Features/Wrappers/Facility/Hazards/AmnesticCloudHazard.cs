@@ -46,12 +46,13 @@ public class AmnesticCloudHazard : DecayableHazard
 
         AmnesticCloudHazard hazard = (AmnesticCloudHazard)Hazard.Spawn(BasePrefab!, position, rotation, scale);
         hazard.Base.State = CloudState.Created;
-        hazard.LiveDuration = duration;
+        hazard.Base._targetDuration = duration;
         hazard.VisualSize = size;
         hazard.SyncedPosition = position;
 
-        Vector2 minMax = hazard.Base.MinMaxTime;
-        hazard.MaxDistance = Mathf.Lerp(minMax.x, minMax.y, size / byte.MaxValue);
+        // Carl Mod derives the range from the held time like Scp939AmnesticCloudInstance.ServerUpdateSpawning.
+        float heldTime = size / (float)byte.MaxValue * hazard.Base._maxHoldTime;
+        hazard.MaxDistance = hazard.Base._rangeOverHeldTime.Evaluate(heldTime);
 
         if (owner != null)
         {
@@ -99,8 +100,8 @@ public class AmnesticCloudHazard : DecayableHazard
     /// </summary>
     public Vector3 SyncedPosition
     {
-        get => Base.SyncedPosition.Position;
-        set => Base.SyncedPosition = new RelativePositioning.RelativePosition(value);
+        get => Base._syncPos.Position;
+        set => Base.Network_syncPos = new RelativePositioning.RelativePosition(value);
     }
 
     /// <summary>
@@ -108,8 +109,8 @@ public class AmnesticCloudHazard : DecayableHazard
     /// </summary>
     public byte VisualSize
     {
-        get => Base.HoldDuration;
-        set => Base.HoldDuration = value;
+        get => Base._syncHoldTime;
+        set => Base.Network_syncHoldTime = value;
     }
 
     /// <summary>
@@ -117,8 +118,8 @@ public class AmnesticCloudHazard : DecayableHazard
     /// </summary>
     public float PauseDuration
     {
-        get => Base.PauseDuration;
-        set => Base.PauseDuration = value;
+        get => Base._pauseDuration;
+        set => Base._pauseDuration = value;
     }
 
     /// <summary>
@@ -126,8 +127,8 @@ public class AmnesticCloudHazard : DecayableHazard
     /// </summary>
     public float AmnesiaDuration
     {
-        get => Base.AmnesiaDuration;
-        set => Base.AmnesiaDuration = value;
+        get => Base._amnesiaDuration;
+        set => Base._amnesiaDuration = value;
     }
 
     /// <summary>
@@ -135,7 +136,7 @@ public class AmnesticCloudHazard : DecayableHazard
     /// </summary>
     public Player? Owner
     {
-        get => Player.Get(Base.Owner);
+        get => ReferenceHub.TryGetHubNetID(Base._syncOwner, out ReferenceHub hub) ? Player.Get(hub) : null;
         set
         {
             if (value == null)
@@ -144,7 +145,14 @@ public class AmnesticCloudHazard : DecayableHazard
                 return;
             }
 
-            Base.Owner = value.ReferenceHub;
+            if (value.ReferenceHub.roleManager.CurrentRole is PlayerRoles.PlayableScps.Scp939.Scp939Role)
+            {
+                // Links the cloud to the owner's abilities like the game does when SCP-939 places it.
+                Base.ServerSetup(value.ReferenceHub);
+                return;
+            }
+
+            Base.Network_syncOwner = value.ReferenceHub.netId;
         }
     }
 

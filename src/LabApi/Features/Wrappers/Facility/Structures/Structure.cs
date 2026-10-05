@@ -1,5 +1,4 @@
 ﻿using Generators;
-using InventorySystem.Items.MicroHID;
 using MapGeneration.Distributors;
 using Mirror;
 using System;
@@ -64,10 +63,10 @@ public class Structure
     [InitializeWrapper]
     internal static void Initialize()
     {
-        SpawnableStructure.OnAdded += OnAdded;
-        SpawnableStructure.OnRemoved += OnRemoved;
+        // Carl Mod has no SpawnableStructure.OnAdded/OnRemoved; the lifecycle patches call OnAdded/OnRemoved.
+        Dictionary.Clear();
 
-        Register<SpawnableStructure>(x => x.StructureType == StructureType.Workstation ? new Workstation(x) : null!);
+        Register<SpawnableStructure>(x => x.StructureType == StructureType.Workstation ? new Workstation(x) : new Structure(x));
         Register<Scp079Generator>(x => new Generator(x));
         Register<MapGeneration.Distributors.Locker>(x =>
         {
@@ -76,12 +75,10 @@ public class Structure
                 StructureType.SmallWallCabinet => new WallCabinet(x),
                 StructureType.StandardLocker => new StandardLocker(x),
                 StructureType.LargeGunLocker => x.Chambers.Length > 9 ? new LargeLocker(x) : new RifleRackLocker(x),
-                _ => null!,
+                _ => new Locker(x),
             };
         });
         Register<PedestalScpLocker>(x => new PedestalLocker(x));
-        Register<MapGeneration.Distributors.ExperimentalWeaponLocker>(x => new ExperimentalWeaponLocker(x));
-        Register<MicroHIDPedestal>(x => new MicroPedestal(x));
     }
 
     /// <summary>
@@ -114,7 +111,7 @@ public class Structure
     /// Private method to handle the creation of new structures in the server.
     /// </summary>
     /// <param name="structure">The <see cref="SpawnableStructure"/> that was created.</param>
-    private static void OnAdded(SpawnableStructure structure)
+    internal static void OnAdded(SpawnableStructure structure)
     {
         if (!Dictionary.ContainsKey(structure))
         {
@@ -126,7 +123,7 @@ public class Structure
     /// Private method to handle the removal of structures from the server.
     /// </summary>
     /// <param name="spawnableStructure">The <see cref="SpawnableStructure"/> that was removed.</param>
-    private static void OnRemoved(SpawnableStructure spawnableStructure)
+    internal static void OnRemoved(SpawnableStructure spawnableStructure)
     {
         if (Dictionary.TryGetValue(spawnableStructure, out Structure structure))
         {
@@ -220,7 +217,10 @@ public class Structure
     /// <summary>
     /// Gets the <see cref="Room"/> based on the structures <see cref="Position"/>.
     /// </summary>
-    public Room? Room => Room.Get(Base.ParentRoom);
+    /// <remarks>
+    /// Carl Mod structures do not store their parent room; it is looked up from the position.
+    /// </remarks>
+    public Room? Room => Room.GetRoomAtPosition(Position);
 
     /// <summary>
     /// Whether to cache the wrapper.

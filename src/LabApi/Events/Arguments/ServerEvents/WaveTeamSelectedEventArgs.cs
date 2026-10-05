@@ -1,5 +1,5 @@
 using LabApi.Features.Wrappers;
-using Respawning.Waves;
+using Respawning;
 using System;
 
 namespace LabApi.Events.Arguments.ServerEvents;
@@ -13,13 +13,13 @@ public class WaveTeamSelectedEventArgs : EventArgs
     /// Initializes a new instance of the <see cref="WaveTeamSelectedEventArgs"/> class.
     /// </summary>
     /// <param name="wave">The wave that was selected.</param>
-    public WaveTeamSelectedEventArgs(SpawnableWaveBase wave)
+    public WaveTeamSelectedEventArgs(SpawnableTeamHandlerBase wave)
     {
         Wave = RespawnWaves.Get(wave)!;
     }
 
     /// <summary>
-    /// Gets the spawnable wave. See <see cref="SpawnableWaveBase"/> and its subclasses for more info.
+    /// Gets the spawnable wave. See <see cref="SpawnableTeamHandlerBase"/> and its subclasses for more info.
     /// </summary>
     public RespawnWave Wave { get; }
 }

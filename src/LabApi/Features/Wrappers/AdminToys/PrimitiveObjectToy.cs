@@ -44,7 +44,7 @@ public class PrimitiveObjectToy : AdminToy
     /// <returns>The created primitive object toy.</returns>
     public static PrimitiveObjectToy Create(Vector3 position, Quaternion rotation, Vector3 scale, Transform? parent = null, bool networkSpawn = true)
     {
-        PrimitiveObjectToy toy = Get(Create<BasePrimitiveObjectToy>(position, rotation, scale, parent));
+        PrimitiveObjectToy toy = Get(Create<BasePrimitiveObjectToy>(position, rotation, Abs(scale), parent));
 
         if (networkSpawn)
         {
@@ -90,6 +90,13 @@ public class PrimitiveObjectToy : AdminToy
         : base(basePrimitiveObjectToy)
     {
         Base = basePrimitiveObjectToy;
+        _color = basePrimitiveObjectToy.MaterialColor;
+
+        // The Carl Mod client adds a collider only when a Scale component is positive (see Flags).
+        Vector3 scale = basePrimitiveObjectToy.transform.localScale;
+        _flags = scale.x > 0f || scale.y > 0f || scale.z > 0f || scale == Vector3.zero
+            ? PrimitiveFlags.Collidable | PrimitiveFlags.Visible
+            : PrimitiveFlags.Visible;
 
         if (CanCache)
         {
@@ -114,10 +121,28 @@ public class PrimitiveObjectToy : AdminToy
     /// <summary>
     /// Gets or sets the material <see cref="UnityEngine.Color"/>.
     /// </summary>
+    /// <remarks>
+    /// While <see cref="Flags"/> lacks <see cref="PrimitiveFlags.Visible"/> clients receive this color with zero alpha.
+    /// </remarks>
     public Color Color
     {
-        get => Base.MaterialColor;
-        set => Base.NetworkMaterialColor = value;
+        get => _color;
+        set
+        {
+            _color = value;
+            PushColor();
+        }
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The sign of each component is reserved for <see cref="Flags"/> collision emulation, so negative (mirrored) scales are not
+    /// supported: the getter returns absolute values and the setter applies the sign required by <see cref="Flags"/>.
+    /// </remarks>
+    public override Vector3 Scale
+    {
+        get => Abs(Transform.localScale);
+        set => base.Scale = Signed(value);
     }
 
     /// <summary>
@@ -125,17 +150,81 @@ public class PrimitiveObjectToy : AdminToy
     /// </summary>
     /// <remarks>
     /// Setting flags to <see cref="PrimitiveFlags.None"/> is similar to having an empty object which is useful as a root object other toys parent to.
+    /// <para>
+    /// Carl Mod has no primitive flags SyncVar; they are emulated with what its client understands.
+    /// <see cref="PrimitiveFlags.Collidable"/> keeps the scale positive (the client adds a collider), its absence makes every scale
+    /// component negative (rendered, no collider). Without <see cref="PrimitiveFlags.Visible"/> the color is sent with zero alpha.
+    /// The client only creates the collider when it builds the primitive, so changing <see cref="PrimitiveFlags.Collidable"/>
+    /// on a spawned toy respawns it.
+    /// </para>
     /// </remarks>
     public PrimitiveFlags Flags
     {
-        get => Base.PrimitiveFlags;
-        set => Base.NetworkPrimitiveFlags = value;
+        get => _flags;
+        set
+        {
+            PrimitiveFlags changed = _flags ^ value;
+            if (changed == PrimitiveFlags.None)
+            {
+                return;
+            }
+
+            _flags = value;
+
+            if ((changed & PrimitiveFlags.Visible) != 0)
+            {
+                PushColor();
+            }
+
+            if ((changed & PrimitiveFlags.Collidable) != 0)
+            {
+                base.Scale = Signed(Transform.localScale);
+
+                // Rebuild the server-side primitive so server raycasts match, then let clients rebuild theirs.
+                Base.SetPrimitive(Base.PrimitiveType, Base.PrimitiveType);
+                Respawn();
+            }
+        }
     }
 
     /// <inheritdoc />
     public override string ToString()
     {
         return $"[PrimitiveObjectToy: Type={Type}, Color={Color}, Flags={Flags}]";
+    }
+
+    /// <summary>
+    /// The color requested through <see cref="Color"/>.
+    /// </summary>
+    private Color _color;
+
+    /// <summary>
+    /// The emulated <see cref="Flags"/>.
+    /// </summary>
+    private PrimitiveFlags _flags;
+
+    /// <summary>
+    /// Returns the component-wise absolute value of a vector.
+    /// </summary>
+    private static Vector3 Abs(Vector3 value) => new(Mathf.Abs(value.x), Mathf.Abs(value.y), Mathf.Abs(value.z));
+
+    /// <summary>
+    /// Applies the scale sign that encodes <see cref="PrimitiveFlags.Collidable"/>.
+    /// </summary>
+    private Vector3 Signed(Vector3 value) => (_flags & PrimitiveFlags.Collidable) != 0 ? Abs(value) : -Abs(value);
+
+    /// <summary>
+    /// Sends <see cref="Color"/>, hidden through zero alpha when <see cref="PrimitiveFlags.Visible"/> is not set.
+    /// </summary>
+    private void PushColor()
+    {
+        Color color = _color;
+        if ((_flags & PrimitiveFlags.Visible) == 0)
+        {
+            color.a = 0f;
+        }
+
+        Base.NetworkMaterialColor = color;
     }
 
     /// <summary>

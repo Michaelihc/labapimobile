@@ -4,6 +4,7 @@ using MapGeneration;
 using MapGeneration.Distributors;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using UnityEngine;
 using static MapGeneration.Distributors.Scp079Generator;
 
 namespace LabApi.Features.Wrappers;
@@ -58,7 +59,7 @@ public class Generator : Structure
     [InitializeWrapper]
     internal static void InitializeCaching()
     {
-        SeedSynchronizer.OnGenerationFinished += SeedSynchronizer_OnGenerationFinished;
+        SeedSynchronizer.OnMapGenerated += SeedSynchronizer_OnGenerationFinished;
     }
 
     private static void SeedSynchronizer_OnGenerationFinished()
@@ -95,8 +96,8 @@ public class Generator : Structure
     /// </summary>
     public float TotalActivationTime
     {
-        get => Base.TotalActivationTime;
-        set => Base.TotalActivationTime = value;
+        get => Base._totalActivationTime;
+        set => Base._totalActivationTime = Mathf.Max(0f, value);
     }
 
     /// <summary>
@@ -104,17 +105,17 @@ public class Generator : Structure
     /// </summary>
     public float TotalDeactivationTime
     {
-        get => Base.TotalDeactivationTime;
-        set => Base.TotalDeactivationTime = value;
+        get => Base._totalDeactivationTime;
+        set => Base._totalDeactivationTime = Mathf.Max(0f, value);
     }
 
     /// <summary>
-    /// Gets or sets the required <see cref="DoorPermissionFlags"/> to unlock the generator.
+    /// Gets or sets the required <see cref="KeycardPermissions"/> to unlock the generator.
     /// </summary>
-    public DoorPermissionFlags RequiredPermissions
+    public KeycardPermissions RequiredPermissions
     {
-        get => Base.RequiredPermissions;
-        set => Base.RequiredPermissions = value;
+        get => Base._requiredPermission;
+        set => Base._requiredPermission = value;
     }
 
     /// <summary>
@@ -148,7 +149,7 @@ public class Generator : Structure
     /// <summary>
     /// Gets the time it takes the generator to be activated (lever pulled).
     /// </summary>
-    public float ActivationTime => Base.ActivationTime;
+    public float ActivationTime => Base._leverDelay;
 
     /// <summary>
     /// Gets or sets whether the generator is engaged.
@@ -173,8 +174,12 @@ public class Generator : Structure
     /// </summary>
     public short RemainingTime
     {
-        get => Base.RemainingTime;
-        set => Base.RemainingTime = value;
+        get => Base._syncTime;
+        set
+        {
+            Base._currentTime = Base._totalActivationTime - value;
+            Base.Network_syncTime = value;
+        }
     }
 
     /// <summary>
@@ -187,8 +192,10 @@ public class Generator : Structure
     /// <summary>
     /// Plays the denied sound cue on the client.
     /// </summary>
-    /// <param name="flags">The permissions used to attempt opening the generator. Used to animate the generator panel.</param>
-    public void PlayerDeniedBeep(DoorPermissionFlags flags) => Base.RpcDenied(flags);
+    /// <remarks>
+    /// Carl Mod's denied RPC carries no permission flags, so the official permission parameter is absent.
+    /// </remarks>
+    public void PlayerDeniedBeep() => Base.RpcDenied();
 
     /// <summary>
     /// An internal method remove itself from the cache when the base object is destroyed.
@@ -197,13 +204,13 @@ public class Generator : Structure
     {
         base.OnRemove();
 
-        if (Base.ParentRoom == null)
+        if (Base.Room == null)
         {
             Dictionary.Remove(Base);
             return;
         }
 
-        Room? room = Room.Get(Base.ParentRoom);
+        Room? room = Room.Get(Base.Room);
 
         if (room == null) // Room is null after round restart, try find it by iterating over the existing dictionary
         {
@@ -243,13 +250,8 @@ public class Generator : Structure
             }
         }
 
-        if (Base.ParentRoom == null)
-        {
-            return;
-        }
-
-        Room? room = Room.Get(Base.ParentRoom);
-
+        // Carl Mod assigns Scp079Generator.Room in Start; fall back to the position lookup before that.
+        Room? room = Base.Room != null ? Room.Get(Base.Room) : Room.GetRoomAtPosition(Position);
         if (room == null)
         {
             return;

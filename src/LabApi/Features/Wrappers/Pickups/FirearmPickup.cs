@@ -1,7 +1,6 @@
-﻿using InventorySystem.Items.Firearms.Attachments;
+using InventorySystem.Items.Firearms;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using Utils.Networking;
 using BaseFirearmPickup = InventorySystem.Items.Firearms.FirearmPickup;
 
 namespace LabApi.Features.Wrappers;
@@ -62,12 +61,14 @@ public class FirearmPickup : Pickup
     /// </summary>
     public uint AttachmentCode
     {
-        get => AttachmentCodeSync.TryGet(Serial, out uint code) ? code : 0;
+        get => Base.Status.Attachments;
         set
         {
-            AttachmentCodeSync.AttachmentCodeMessage msg = new(Serial, value);
-            msg.SendToAuthenticated();
-            msg.Apply();
+            FirearmStatus status = Base.Status;
+            if (status.Attachments != value)
+            {
+                Base.NetworkStatus = new FirearmStatus(status.Ammo, status.Flags, value);
+            }
         }
     }
 

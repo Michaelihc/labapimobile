@@ -1,18 +1,17 @@
-﻿using InventorySystem.Items.Firearms;
+using InventorySystem.Items.Firearms;
 using InventorySystem.Items.Firearms.Modules;
 using LabApi.Features.Console;
-using System.Collections.Generic;
-using static InventorySystem.Items.Firearms.Modules.CylinderAmmoModule;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
 /// Wrapper for revolver firearm.
 /// </summary>
+/// <remarks>
+/// The Carl Mod revolver has no per-chamber cylinder state and no roulette spin: it fires while any round is loaded.
+/// </remarks>
 public class RevolverFirearm : FirearmItem
 {
-    private RevolverRouletteModule _rouletteModule = null!;
-
     /// <summary>
     /// An internal constructor to prevent external instantiation.
     /// </summary>
@@ -25,30 +24,12 @@ public class RevolverFirearm : FirearmItem
     /// <inheritdoc/>
     public override bool OpenBolt => false;
 
-    /// <summary>
-    /// Gets collection of all active chambers. The first chamber is the one aligned with the barrel.<br/>
-    /// Each subsequent index corresponds to the next chambers that will become aligned with the barrel when the cylinder rotates in its intended direction.<br/>
-    /// <b>Note that double-action revolvers rotate the cylinder right before firing, which means the 0th element isn't necessarily the next round to be fired (unless the revolver is already cocked).</b><para/>
-    /// </summary>
-    public IEnumerable<Chamber> Chambers
-    {
-        get
-        {
-            if (AmmoContainerModule is CylinderAmmoModule)
-            {
-                return GetChambersArrayForSerial(Serial, MaxAmmo);
-            }
-
-            return [];
-        }
-    }
-
     /// <inheritdoc/>
     public override bool Cocked
     {
         get
         {
-            if (ActionModule is DoubleActionModule actionModule)
+            if (ActionModule is DoubleAction actionModule)
             {
                 return actionModule.Cocked;
             }
@@ -58,9 +39,9 @@ public class RevolverFirearm : FirearmItem
 
         set
         {
-            if (ActionModule is not DoubleActionModule actionModule)
+            if (ActionModule is not DoubleAction actionModule)
             {
-                Logger.Error($"Unable to set {nameof(Cocked)} as the {nameof(DoubleActionModule)} is null.");
+                Logger.Error($"Unable to set {nameof(Cocked)} as the {nameof(DoubleAction)} is null.");
                 return;
             }
 
@@ -76,120 +57,26 @@ public class RevolverFirearm : FirearmItem
     /// </remarks>
     public override int StoredAmmo
     {
-        get
-        {
-            if (AmmoContainerModule is CylinderAmmoModule ammoModule)
-            {
-                return ammoModule.AmmoStored;
-            }
-
-            return 0;
-        }
-
+        get => Base.Status.Ammo;
         set
         {
-            if (AmmoContainerModule is not CylinderAmmoModule ammoModule)
-            {
-                Logger.Error($"Unable to set {nameof(StoredAmmo)} as the {nameof(CylinderAmmoModule)} is null.");
-                return;
-            }
-
-            foreach (Chamber chamber in Chambers)
-            {
-                chamber.ServerSyncState = ChamberState.Empty;
-            }
-
-            ammoModule.ServerModifyAmmo(value);
+            int max = MaxAmmo;
+            SetTotalAmmo(value < max ? value : max);
         }
     }
 
     /// <summary>
-    /// Gets or sets the current ammo in the chamber.<para/>
-    /// Revolver's <see cref="ChamberedAmmo"/> only accounts for the currently aligned chamber with the barrel. Therefore the maximum of chambered ammo is 1 (live round) or 0 (empty / discharged).
-    /// Any value greater than 1 is counted as live round.
+    /// Gets whether a round is ready to fire: 1 while the cylinder holds any round, otherwise 0.
     /// </summary>
+    /// <remarks>
+    /// The fork does not track individual chambers, so this value cannot be set.
+    /// </remarks>
     public override int ChamberedAmmo
     {
-        get
-        {
-            return GetChambersArrayForSerial(Serial, MaxAmmo)[0].ServerSyncState == ChamberState.Live ? 1 : 0;
-        }
-
-        set
-        {
-            if (ActionModule is not DoubleActionModule actionModule)
-            {
-                Logger.Error($"Unable to set {nameof(ChamberedAmmo)} as the {nameof(DoubleActionModule)} is null.");
-                return;
-            }
-
-            SetChamberStatus(0, value == 0 ? ChamberState.Empty : ChamberState.Live);
-        }
-    }
-
-    /// <summary>
-    /// Sets the status of the chamber at <paramref name="index"/>. 0th element is the one currently aligned with the barrel.<para/>
-    /// <b>Indexes of each round are clockwise.</b>
-    /// </summary>
-    /// <param name="index">Index of the chamber clockwise. Starting at barrel aligned chamber.</param>
-    /// <param name="state">Target state of the chamber.</param>
-    public void SetChamberStatus(int index, ChamberState state)
-    {
-        if (AmmoContainerModule is not CylinderAmmoModule ammoModule)
-        {
-            Logger.Error($"Unable to set chamber status, this firearm doesn't have {nameof(CylinderAmmoModule)}!");
-            return;
-        }
-
-        Chamber[] chambers = GetChambersArrayForSerial(Serial, MaxAmmo);
-        chambers[index].ServerSyncState = state;
-
-        ammoModule.ServerResync();
-    }
-
-    /// <summary>
-    /// Rotates the chamber counter-clockwise (positive numbers) or clockwise (negative numbers) <paramref name="amount"/> times.
-    /// No animation is played client-side.
-    /// </summary>
-    /// <param name="amount">The amount of times to rotate this cylinder.</param>
-    public void Rotate(int amount)
-    {
-        if (AmmoContainerModule is not CylinderAmmoModule ammoModule)
-        {
-            Logger.Error($"Unable to rotate this cylinder, this firearm doesn't have {nameof(CylinderAmmoModule)}!");
-            return;
-        }
-
-        ammoModule.RotateCylinder(amount);
-    }
-
-    /// <summary>
-    /// Attempts to spin the revolver if the firearm isn't busy doing something else.
-    /// </summary>
-    /// <returns>Whether the spin request was successful.</returns>
-    public bool TrySpin()
-    {
-        if (_rouletteModule is not RevolverRouletteModule ammoModule)
-        {
-            Logger.Error($"Unable to spin this cylinder, this firearm doesn't have {nameof(RevolverRouletteModule)}!");
-            return false;
-        }
-
-        return _rouletteModule.ServerTrySpin();
+        get => Base.Status.Ammo > 0 ? 1 : 0;
+        set => Logger.Error($"Unable to set {nameof(ChamberedAmmo)} as the revolver has no per-chamber state; use {nameof(StoredAmmo)}.");
     }
 
     /// <inheritdoc/>
-    protected override void CacheModules()
-    {
-        base.CacheModules();
-
-        foreach (ModuleBase module in Modules)
-        {
-            if (module is RevolverRouletteModule rouletteModule)
-            {
-                _rouletteModule = rouletteModule;
-                break;
-            }
-        }
-    }
+    public override int ChamberMax => 1;
 }

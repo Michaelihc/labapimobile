@@ -36,6 +36,6 @@ public static class LabApiProperties
         string version = att.InformationalVersion ?? defaultVersion;
         int index = version.IndexOf('+');
 
-        return version[..index];
+        return index < 0 ? version : version[..index];
     }
 }

@@ -1,12 +1,31 @@
-﻿using GameCore;
+using GameCore;
 using Generators;
 using LabApi.Events.Handlers;
 using Mirror;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace LabApi.Features.Wrappers;
+
+/// <summary>
+/// The kind of scenario used by the warhead countdown.
+/// </summary>
+/// <remarks>
+/// The Carl Mod game code tracks this as <see cref="AlphaWarheadSyncInfo.ResumeScenario"/> and has no
+/// Deadman Switch scenario, so this enum stands in for the official game type.
+/// </remarks>
+public enum WarheadScenarioType : byte
+{
+    /// <summary>
+    /// The scenario used the first time the warhead is activated.
+    /// </summary>
+    Start,
+
+    /// <summary>
+    /// The scenario used whenever the warhead is resumed after a cancellation.
+    /// </summary>
+    Resume,
+}
 
 /// <summary>
 /// The wrapper for various Warhead components.
@@ -17,13 +36,13 @@ public static class Warhead
     /// The base <see cref="AlphaWarheadController"/>.
     /// Null if they have not been created yet, see <see cref="Exists"/>.
     /// </summary>
-    public static AlphaWarheadController? BaseController => AlphaWarheadController.Singleton;
+    public static AlphaWarheadController? BaseController => AlphaWarheadController.SingletonSet ? AlphaWarheadController.Singleton : null;
 
     /// <summary>
     /// The base <see cref="AlphaWarheadNukesitePanel"/>.
     /// Null if they have not been created yet, see <see cref="Exists"/>.
     /// </summary>
-    public static AlphaWarheadNukesitePanel? BaseNukesitePanel => AlphaWarheadNukesitePanel.Singleton;
+    public static AlphaWarheadNukesitePanel? BaseNukesitePanel => AlphaWarheadOutsitePanel.nukeside;
 
     /// <summary>
     /// The base <see cref="AlphaWarheadOutsitePanel"/>.
@@ -49,12 +68,13 @@ public static class Warhead
     /// </summary>
     public static bool LeverStatus
     {
-        get => BaseNukesitePanel?.enabled ?? false;
+        get => BaseNukesitePanel?.nukenabled ?? false;
         set
         {
-            if (BaseNukesitePanel != null)
+            AlphaWarheadNukesitePanel? panel = BaseNukesitePanel;
+            if (panel != null && panel.nukenabled != value)
             {
-                BaseNukesitePanel.Networkenabled = value;
+                panel.Networknukenabled = value;
             }
         }
     }
@@ -64,8 +84,15 @@ public static class Warhead
     /// </summary>
     public static bool IsAuthorized
     {
-        get => AlphaWarheadActivationPanel.IsUnlocked;
-        set => AlphaWarheadActivationPanel.IsUnlocked = value;
+        get => BaseOutsidePanel?.keycardEntered ?? false;
+        set
+        {
+            AlphaWarheadOutsitePanel? panel = BaseOutsidePanel;
+            if (panel != null && panel.keycardEntered != value)
+            {
+                panel.NetworkkeycardEntered = value;
+            }
+        }
     }
 
     /// <summary>
@@ -98,7 +125,7 @@ public static class Warhead
     /// </summary>
     public static float DetonationTime
     {
-        get => AlphaWarheadController.TimeUntilDetonation;
+        get => Exists ? AlphaWarheadController.TimeUntilDetonation : 0f;
         set => BaseController?.ForceTime(value);
     }
 
@@ -118,38 +145,10 @@ public static class Warhead
     }
 
     /// <summary>
-    /// Forces DMS sequence to count down even if conditions are not met.
-    /// </summary>
-    public static bool ForceCountdownToggle
-    {
-        get => DeadmanSwitch.ForceCountdownToggle;
-        set => DeadmanSwitch.ForceCountdownToggle = value;
-    }
-
-    /// <summary>
-    /// Indicates how much time is left for the DMS to activate.
-    /// Value is capped by <see cref="DeadManSwitchMaxTime"/>.
-    /// </summary>
-    public static float DeadManSwitchRemaining
-    {
-        get => DeadmanSwitch.CountdownTimeLeft;
-        set => DeadmanSwitch.CountdownTimeLeft = value;
-    }
-
-    /// <summary>
-    /// Indicates the amount of time it takes for the DMS to activate.
-    /// </summary>
-    public static float DeadManSwitchMaxTime
-    {
-        get => DeadmanSwitch.CountdownMaxTime;
-        set => DeadmanSwitch.CountdownMaxTime = value;
-    }
-
-    /// <summary>
     /// Gets or sets the value for which <see cref="DetonationScenario"/> to use.
     /// </summary>
     /// <remarks>
-    /// Must be one of <see cref="StartScenarios"/>, <see cref="ResumeScenarios"/>, <see cref="DeadmanSwitchScenario"/> or the default value for <see cref="DetonationScenario"/>.
+    /// Must be one of <see cref="StartScenarios"/>, <see cref="ResumeScenarios"/> or the default value for <see cref="DetonationScenario"/>.
     /// If <see cref="DetonationScenario"/> is the default value the Scenario is reset to the default used by the server config.
     /// </remarks>
     public static DetonationScenario Scenario
@@ -161,13 +160,9 @@ public static class Warhead
                 return default;
             }
 
-            return ScenarioType switch
-            {
-                WarheadScenarioType.Start => StartScenarios[BaseController.Info.ScenarioId],
-                WarheadScenarioType.Resume => ResumeScenarios[BaseController.Info.ScenarioId],
-                WarheadScenarioType.DeadmanSwitch => DeadmanSwitchScenario,
-                _ => default,
-            };
+            IReadOnlyList<DetonationScenario> scenarios = ScenarioType == WarheadScenarioType.Resume ? ResumeScenarios : StartScenarios;
+            int id = BaseController.Info.ScenarioId;
+            return id >= 0 && id < scenarios.Count ? scenarios[id] : default;
         }
 
         set
@@ -177,25 +172,32 @@ public static class Warhead
                 return;
             }
 
-            if (value.Equals(default))
+            AlphaWarheadSyncInfo info = BaseController.Info;
+            if (value.Equals(default(DetonationScenario)))
             {
-                // Resets warhead to its initial scenario.
+                // Resets warhead to its initial scenario, as AlphaWarheadController.Start does.
                 int duration = ConfigFile.ServerConfig.GetInt("warhead_tminus_start_duration", 90);
-                var found = StartScenarios.Select((val, index) => new { val, index }).FirstOrDefault(x => x.val.TimeToDetonate == duration);
-                byte id = found.Equals(default) ? BaseController.DefaultScenarioId : (byte)found.index;
-                BaseController.NetworkInfo = BaseController.Info with
+                int id = BaseController._defaultScenarioId;
+                for (int i = 0; i < StartScenarios.Count; i++)
                 {
-                    ScenarioType = WarheadScenarioType.Start,
-                    ScenarioId = id,
-                };
+                    if (StartScenarios[i].TimeToDetonate == duration)
+                    {
+                        id = i;
+                    }
+                }
+
+                info.ResumeScenario = false;
+                info.ScenarioId = id;
             }
             else
             {
-                BaseController.NetworkInfo = BaseController.Info with
-                {
-                    ScenarioType = value.Type,
-                    ScenarioId = value.Id,
-                };
+                info.ResumeScenario = value.Type == WarheadScenarioType.Resume;
+                info.ScenarioId = value.Id;
+            }
+
+            if (info != BaseController.Info)
+            {
+                BaseController.NetworkInfo = info;
             }
         }
     }
@@ -203,7 +205,7 @@ public static class Warhead
     /// <summary>
     /// Gets the warhead scenario type for the current <see cref="Scenario"/>.
     /// </summary>
-    public static WarheadScenarioType ScenarioType => BaseController?.Info.ScenarioType ?? WarheadScenarioType.Start;
+    public static WarheadScenarioType ScenarioType => BaseController != null && BaseController.Info.ResumeScenario ? WarheadScenarioType.Resume : WarheadScenarioType.Start;
 
     /// <summary>
     /// Gets an array of all the start scenarios.
@@ -220,11 +222,6 @@ public static class Warhead
     /// The scenarios used for anytime the warhead is resumed.
     /// </remarks>
     public static IReadOnlyList<DetonationScenario> ResumeScenarios { get; private set; } = [];
-
-    /// <summary>
-    /// Gets the deadman switch scenario.
-    /// </summary>
-    public static DetonationScenario DeadmanSwitchScenario { get; private set; } = default;
 
     /// <summary>
     /// Starts the detonation countdown.
@@ -256,24 +253,16 @@ public static class Warhead
     }
 
     /// <summary>
-    /// Opens all blast doors.
-    /// </summary>
-    public static void OpenBlastDoors()
-    {
-        foreach (BlastDoor door in BlastDoor.Instances)
-        {
-            door.ServerSetTargetState(true);
-        }
-    }
-
-    /// <summary>
     /// Closes all blast doors.
     /// </summary>
     public static void CloseBlastDoors()
     {
         foreach (BlastDoor door in BlastDoor.Instances)
         {
-            door.ServerSetTargetState(false);
+            if (!door.isClosed)
+            {
+                door.SetClosed(false, true);
+            }
         }
     }
 
@@ -289,8 +278,6 @@ public static class Warhead
     internal static void Initialize()
     {
         ServerEvents.WaitingForPlayers += OnWaitingForPlayers;
-
-        // TODO: Might want to handle this a different way as we are missing on destroy
     }
 
     /// <summary>
@@ -300,17 +287,32 @@ public static class Warhead
     {
         BaseOutsidePanel = UnityEngine.Object.FindObjectOfType<AlphaWarheadOutsitePanel>();
 
-        StartScenarios = BaseController!.StartScenarios.Select((x, i) => new DetonationScenario(x, (byte)i, WarheadScenarioType.Start)).ToArray();
-        ResumeScenarios = BaseController.ResumeScenarios.Select((x, i) => new DetonationScenario(x, (byte)i, WarheadScenarioType.Resume)).ToArray();
-        DeadmanSwitchScenario = new DetonationScenario(BaseController.DeadmanSwitchScenario, 0, WarheadScenarioType.DeadmanSwitch);
+        AlphaWarheadController? controller = BaseController;
+        if (controller == null)
+        {
+            StartScenarios = [];
+            ResumeScenarios = [];
+            return;
+        }
+
+        StartScenarios = Wrap(controller._startScenarios, WarheadScenarioType.Start);
+        ResumeScenarios = Wrap(controller._resumeScenarios, WarheadScenarioType.Resume);
     }
 
-    /// <summary>
-    /// Handles the removal of warhead components.
-    /// </summary>
-    private static void OnMapDestroyed()
+    private static DetonationScenario[] Wrap(AlphaWarheadController.DetonationScenario[]? scenarios, WarheadScenarioType type)
     {
-        BaseOutsidePanel = null;
+        if (scenarios == null)
+        {
+            return [];
+        }
+
+        DetonationScenario[] result = new DetonationScenario[scenarios.Length];
+        for (int i = 0; i < scenarios.Length; i++)
+        {
+            result[i] = new DetonationScenario(scenarios[i], (byte)i, type);
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -347,8 +349,7 @@ public static class Warhead
         internal DetonationScenario(AlphaWarheadController.DetonationScenario detonationScenario, byte id, WarheadScenarioType type)
         {
             TimeToDetonate = detonationScenario.TimeToDetonate;
-            // TODO: Remove the cast on 2.0.0 and change additional time to float
-            AdditionalTime = (int)detonationScenario.AdditionalTime;
+            AdditionalTime = detonationScenario.AdditionalTime;
             Type = type;
             Id = id;
         }

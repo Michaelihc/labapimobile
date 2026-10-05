@@ -1,4 +1,4 @@
-using Generators;
+﻿using Generators;
 using Interactables.Interobjects.DoorUtils;
 using LabApi.Features.Extensions;
 using MapGeneration;
@@ -179,7 +179,9 @@ public class Room
     /// <returns>Whether the room was found at the specified position.</returns>
     public static bool TryGetRoomAtPosition(Vector3 position, [NotNullWhen(true)] out Room? room)
     {
-        if (!RoomUtils.TryGetRoom(position, out RoomIdentifier baseRoom))
+        // Carl Mod has no RoomUtils; the coordinate cache lookup is tried first and raycasts are only a fallback.
+        RoomIdentifier baseRoom = RoomIdUtils.RoomAtPositionRaycasts(position, prioritizeRaycast: false);
+        if (baseRoom == null)
         {
             room = null;
             return false;
@@ -267,6 +269,8 @@ public class Room
 
     private IReadOnlyCollection<Room>? _adjacentRooms;
 
+    private HashSet<RoomIdentifier>? _connectedRooms;
+
     /// <summary>
     /// An internal constructor to prevent external instantiation.
     /// </summary>
@@ -309,7 +313,47 @@ public class Room
     /// <summary>
     /// Gets the room's neighbors.
     /// </summary>
-    public HashSet<RoomIdentifier> ConnectedRooms => Base.ConnectedRooms;
+    /// <remarks>
+    /// Carl Mod rooms do not store their connections; neighbors are the other rooms that share a door with this room.
+    /// The set is built once after map generation.
+    /// </remarks>
+    public HashSet<RoomIdentifier> ConnectedRooms
+    {
+        get
+        {
+            if (_connectedRooms != null)
+            {
+                return _connectedRooms;
+            }
+
+            HashSet<RoomIdentifier> connected = [];
+            if (DoorVariant.DoorsByRoom.TryGetValue(Base, out HashSet<DoorVariant> doors))
+            {
+                foreach (DoorVariant door in doors)
+                {
+                    if (door == null || door.Rooms == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (RoomIdentifier other in door.Rooms)
+                    {
+                        if (other != null && other != Base)
+                        {
+                            connected.Add(other);
+                        }
+                    }
+                }
+            }
+
+            if (SeedSynchronizer.MapGenerated)
+            {
+                _connectedRooms = connected;
+            }
+
+            return connected;
+        }
+    }
 
     /// <summary>
     /// Gets the room's adjacent rooms where the player can traverse to.
@@ -324,7 +368,7 @@ public class Room
                 return _adjacentRooms;
             }
 
-            List<Room> rooms = [.. ConnectedRooms.Select(Get)];
+            List<Room> rooms = [.. ConnectedRooms.Select(static x => Get(x)!)];
 
             // Check if the room has elevator
             Elevator? target = null;
@@ -387,13 +431,39 @@ public class Room
     /// Use <see cref="AllLightControllers"/> if you wish to modify all lights in this room.
     /// </note>
     /// </summary>
-    public LightsController? LightController => Base.LightControllers.Count > 0 ? LightsController.Get(Base.LightControllers[0]) : null;
+    public LightsController? LightController
+    {
+        get
+        {
+            foreach (FlickerableLightController controller in FlickerableLightController.Instances)
+            {
+                if (controller != null && controller.Room == Base)
+                {
+                    return LightsController.Get(controller);
+                }
+            }
+
+            return null;
+        }
+    }
 
     /// <summary>
     /// Gets all light controllers for this specified room.<br/>
     /// Some rooms such as 049, warhead and such may have multiple light controllers as they are split by the elevator.
     /// </summary>
-    public IEnumerable<LightsController> AllLightControllers => Base.LightControllers.Select(LightsController.Get)!;
+    public IEnumerable<LightsController> AllLightControllers
+    {
+        get
+        {
+            foreach (FlickerableLightController controller in FlickerableLightController.Instances)
+            {
+                if (controller != null && controller.Room == Base)
+                {
+                    yield return LightsController.Get(controller)!;
+                }
+            }
+        }
+    }
 
     /// <summary>
     /// Gets the room's <see cref="UnityEngine.Transform"/>.
@@ -443,8 +513,30 @@ public class Room
     /// <returns>The closest light controller. May return <see langword="null"/> if player is not alive or is not in any room.</returns>
     public LightsController? GetClosestLightController(Player player)
     {
-        RoomLightController rlc = Base.GetClosestLightController(player.ReferenceHub);
-        return rlc == null ? null : LightsController.Get(rlc);
+        if (!player.IsAlive || !TryGetRoomAtPosition(player.Position, out Room? room) || room != this)
+        {
+            return null;
+        }
+
+        Vector3 position = player.Position;
+        FlickerableLightController? closest = null;
+        float closestDistance = float.MaxValue;
+        foreach (FlickerableLightController controller in FlickerableLightController.Instances)
+        {
+            if (controller == null || controller.Room != Base)
+            {
+                continue;
+            }
+
+            float distance = (controller.transform.position - position).sqrMagnitude;
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closest = controller;
+            }
+        }
+
+        return closest == null ? null : LightsController.Get(closest);
     }
 
     /// <summary>
@@ -454,5 +546,6 @@ public class Room
     {
         Dictionary.Remove(Base);
         _adjacentRooms = null;
+        _connectedRooms = null;
     }
 }

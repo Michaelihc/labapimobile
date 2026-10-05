@@ -1,6 +1,7 @@
-﻿using InventorySystem.Items.MicroHID.Modules;
+using InventorySystem.Items.MicroHID;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using UnityEngine;
 using BaseMicroHIDItem = InventorySystem.Items.MicroHID.MicroHIDItem;
 
 namespace LabApi.Features.Wrappers;
@@ -8,6 +9,10 @@ namespace LabApi.Features.Wrappers;
 /// <summary>
 /// The wrapper representing <see cref="BaseMicroHIDItem"/>.
 /// </summary>
+/// <remarks>
+/// The Carl Mod build uses the pre-14.0 Micro-HID: a single <see cref="HidState"/> machine with energy stored on the item,
+/// no firing modes, no broken state and no module system.
+/// </remarks>
 public class MicroHIDItem : Item
 {
     /// <summary>
@@ -57,89 +62,66 @@ public class MicroHIDItem : Item
     public new BaseMicroHIDItem Base { get; }
 
     /// <summary>
-    /// The base <see cref="EnergyManagerModule"/> module.
-    /// </summary>
-    public EnergyManagerModule BaseEnergyManager => Base.EnergyManager;
-
-    /// <summary>
-    /// The base <see cref="InputSyncModule"/> module.
-    /// </summary>
-    public InputSyncModule BaseInputSyncModule => Base.InputSync;
-
-    /// <summary>
-    /// The base <see cref="BrokenSyncModule"/> module.
-    /// </summary>
-    public BrokenSyncModule BaseBrokenSyncModule => Base.BrokenSync;
-
-    /// <summary>
-    /// The base <see cref="CycleController"/> controller.
-    /// </summary>
-    public CycleController BaseCycleController => Base.CycleController;
-
-    /// <summary>
     /// Gets or sets the remaining energy left in the micro.
     /// 0.0 = empty, 1.0 = full.
     /// </summary>
     public float Energy
     {
-        get => BaseEnergyManager.Energy;
-        set => BaseEnergyManager.ServerSetEnergy(Serial, value);
+        get => Base.RemainingEnergy;
+        set
+        {
+            byte previous = Base.EnergyToByte;
+            Base.RemainingEnergy = Mathf.Clamp01(value);
+            if (previous != Base.EnergyToByte)
+            {
+                Base.ServerSendStatus(HidStatusMessageType.EnergySync, Base.EnergyToByte);
+            }
+        }
     }
 
     /// <summary>
-    /// Gets or sets whether the micro is considered broken.
+    /// Gets or sets the current <see cref="HidState"/> of the micro.
     /// </summary>
-    public bool IsBroken
+    /// <remarks>
+    /// Official LabAPI exposes <c>MicroHidPhase</c>; the Carl Mod equivalent is <see cref="HidState"/>.
+    /// Setting the state restarts the state timer and synchronizes it to clients.
+    /// </remarks>
+    public HidState Phase
     {
-        get => BaseBrokenSyncModule.Broken;
-        set => BaseBrokenSyncModule.ServerSetBroken(Serial, value);
-    }
+        get => Base.State;
+        set
+        {
+            if (Base.State == value)
+            {
+                return;
+            }
 
-    /// <summary>
-    /// Gets or sets the current <see cref="MicroHidPhase"/> of the micro.
-    /// </summary>
-    public MicroHidPhase Phase
-    {
-        get => BaseCycleController.Phase;
-        set => BaseCycleController.Phase = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the last known firing mode of the micro.
-    /// </summary>
-    public MicroHidFiringMode FiringMode
-    {
-        get => BaseCycleController.LastFiringMode;
-        set => BaseCycleController.LastFiringMode = value;
+            Base.State = value;
+            Base._stopwatch.Restart();
+            Base.ServerSendStatus(HidStatusMessageType.State, (byte)value);
+        }
     }
 
     /// <summary>
     /// The progress from 0 to 1 for how ready the micro is to fire.
-    /// Goes up when winding up, and down when winding down.
+    /// Goes up when winding up.
     /// </summary>
-    public float WindUpProgress => BaseCycleController.ServerWindUpProgress;
+    public float WindUpProgress => Base.Readiness;
 
     /// <summary>
     /// Time in seconds that the current phase has been active.
     /// </summary>
-    public float PhaseElapsed => BaseCycleController.CurrentPhaseElapsed;
+    public float PhaseElapsed => (float)Base._stopwatch.Elapsed.TotalSeconds;
 
     /// <summary>
     /// Gets whether the primary fire is being held by the <see cref="Item.CurrentOwner"/>.
     /// </summary>
-    public bool IsPrimaryHeld => BaseInputSyncModule.Primary;
+    public bool IsPrimaryHeld => Base.UserInput == HidUserInput.Fire;
 
     /// <summary>
-    /// Gets whether the secondary fire is being held by the <see cref="Item.CurrentOwner"/>.
+    /// Gets whether the secondary fire (priming) is being held by the <see cref="Item.CurrentOwner"/>.
     /// </summary>
-    public bool IsSecondaryHeld => BaseInputSyncModule.Secondary;
-
-    /// <summary>
-    /// Tries to get the audible range in meters for the sound being emitted.
-    /// </summary>
-    /// <param name="range">The sounds range in meters.</param>
-    /// <returns>Returns true if the micro is emitting sound, otherwise false.</returns>
-    public bool TryGetSoundEmissionRange(out float range) => Base.TryGetSoundEmissionRange(out range);
+    public bool IsSecondaryHeld => Base.UserInput == HidUserInput.Prime;
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

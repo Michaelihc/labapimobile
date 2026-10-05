@@ -56,16 +56,25 @@ public class Camera
     internal static void Initialize()
     {
         Dictionary.Clear();
+    }
 
-        Scp079Camera.OnInstanceCreated += (camera) => new Camera(camera);
-        Scp079Camera.OnInstanceRemoved += (camera) => Remove(camera);
+    /// <summary>
+    /// Called by the lifecycle patch when a camera awakes (Carl Mod has no <c>Scp079Camera.OnInstanceCreated</c>).
+    /// </summary>
+    /// <param name="camera">The created camera.</param>
+    internal static void OnAdded(Scp079Camera camera)
+    {
+        if (!Dictionary.ContainsKey(camera))
+        {
+            _ = new Camera(camera);
+        }
     }
 
     /// <summary>
     /// Handles the removal of a camera from the dictionary.
     /// </summary>
     /// <param name="camera">The camera to remove.</param>
-    private static void Remove(Scp079Camera camera)
+    internal static void Remove(Scp079Camera camera)
     {
         Dictionary.Remove(camera);
     }
@@ -100,8 +109,8 @@ public class Camera
     /// </summary>
     public Quaternion Rotation
     {
-        get => Base.CameraAnchor.rotation;
-        set => Base.CameraAnchor.rotation = value;
+        get => Base._cameraAnchor.rotation;
+        set => Base._cameraAnchor.rotation = value;
     }
 
     /// <summary>

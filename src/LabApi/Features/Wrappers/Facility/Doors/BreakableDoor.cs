@@ -64,11 +64,7 @@ public class BreakableDoor : Door
     /// <summary>
     /// Gets or sets whether SCP-106 can pass through the door when it's not closed and locked.
     /// </summary>
-    public bool Is106Passable
-    {
-        get => Base.IsScp106Passable;
-        set => Base.IsScp106Passable = value;
-    }
+    public bool Is106Passable => Base.IsScp106Passable;
 
     /// <summary>
     /// Gets or sets the max health used when spawning.
@@ -97,7 +93,14 @@ public class BreakableDoor : Door
     public bool IsBroken
     {
         get => Base.IsDestroyed;
-        set => Base.IsDestroyed = value;
+        set
+        {
+            // Carl Mod breakable doors cannot be repaired; only breaking is supported.
+            if (value)
+            {
+                Base.IsDestroyed = true;
+            }
+        }
     }
 
     /// <summary>
@@ -125,13 +128,6 @@ public class BreakableDoor : Door
     /// <returns>True if the doors took damage, otherwise false.</returns>
     public bool TryBreak(DoorDamageType type = DoorDamageType.ServerCommand)
         => TryDamage(float.MaxValue, type);
-
-    /// <summary>
-    /// Tries to repair the door.
-    /// <remarks>Sets the doors health back to <see cref="MaxHealth"/> if the door is broken otherwise it does nothing.</remarks>
-    /// </summary>
-    /// <returns>True if the door was repaired, otherwise false.</returns>
-    public bool TryRepair() => Base.ServerRepair();
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

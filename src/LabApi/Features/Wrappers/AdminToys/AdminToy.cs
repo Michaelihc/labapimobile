@@ -59,21 +59,16 @@ public class AdminToy
     /// <summary>
     /// Initializes the <see cref="AdminToy"/> class.
     /// </summary>
+    /// <remarks>
+    /// Carl Mod has no <c>AdminToyBase.OnAdded</c>/<c>OnRemoved</c>; <c>Events/Patches/Internal/CoreAdminToyLifecycle.cs</c>
+    /// calls <see cref="AddAdminToy"/> when a toy is network spawned and <see cref="RemoveAdminToy"/> when it is destroyed.
+    /// </remarks>
     [InitializeWrapper]
     internal static void Initialize()
     {
-        AdminToyBase.OnAdded += AddAdminToy;
-        AdminToyBase.OnRemoved += RemoveAdminToy;
-
         Register<AdminToys.PrimitiveObjectToy>(static x => new PrimitiveObjectToy(x));
         Register<AdminToys.LightSourceToy>(static x => new LightSourceToy(x));
         Register<ShootingTarget>(static x => new ShootingTargetToy(x));
-        Register<AdminToys.SpeakerToy>(static x => new SpeakerToy(x));
-        Register<InvisibleInteractableToy>(static x => new InteractableToy(x));
-        Register<Scp079CameraToy>(static x => new CameraToy(x));
-        Register<AdminToys.CapybaraToy>(static x => new CapybaraToy(x));
-        Register<AdminToys.TextToy>(static x => new TextToy(x));
-        Register<AdminToys.WaypointToy>(static x => new WaypointToy(x));
     }
 
     /// <summary>
@@ -85,6 +80,11 @@ public class AdminToy
     /// <param name="scale">The initial local scale.</param>
     /// <param name="parent">The parent transform.</param>
     /// <returns>The instantiated admin toy.</returns>
+    /// <remarks>
+    /// The toy starts with <see cref="IsStatic"/> enabled; the first <see cref="Position"/>, <see cref="Rotation"/>,
+    /// <see cref="Scale"/> or <see cref="Parent"/> change after it is spawned switches it to dynamic unless
+    /// <see cref="IsStatic"/> was set explicitly.
+    /// </remarks>
     protected static T Create<T>(Vector3 position, Quaternion rotation, Vector3 scale, Transform? parent)
         where T : AdminToyBase
     {
@@ -108,9 +108,14 @@ public class AdminToy
         }
 
         T instance = UnityEngine.Object.Instantiate(PrefabCache<T>.Prefab, parent);
-        instance.transform.localPosition = position;
-        instance.transform.localRotation = rotation;
-        instance.transform.localScale = scale;
+        Transform transform = instance.transform;
+        transform.SetLocalPositionAndRotation(position, rotation);
+        transform.localScale = scale;
+
+        // Static toys cost nothing per frame on the server or on the phone; the wrapper reverts to dynamic on the first move.
+        instance.NetworkIsStatic = true;
+        PendingAutoStatic = instance;
+        SyncTransform(instance);
         return instance;
     }
 
@@ -141,7 +146,7 @@ public class AdminToy
     /// A private method to handle the creation of new admin toys in the server.
     /// </summary>
     /// <param name="adminToyBase">The created <see cref="AdminToyBase"/> instance.</param>
-    private static void AddAdminToy(AdminToyBase adminToyBase)
+    internal static void AddAdminToy(AdminToyBase adminToyBase)
     {
         try
         {
@@ -160,7 +165,7 @@ public class AdminToy
     /// A private method to handle the removal of admin toys from the server.
     /// </summary>
     /// <param name="adminToyBase">The to be destroyed <see cref="AdminToyBase"/> instance.</param>
-    private static void RemoveAdminToy(AdminToyBase adminToyBase)
+    internal static void RemoveAdminToy(AdminToyBase adminToyBase)
     {
         try
         {
@@ -193,6 +198,12 @@ public class AdminToy
     protected AdminToy(AdminToyBase adminToyBase)
     {
         Base = adminToyBase;
+
+        if (ReferenceEquals(PendingAutoStatic, adminToyBase))
+        {
+            _autoStatic = true;
+            PendingAutoStatic = null;
+        }
 
         if (CanCache)
         {
@@ -233,7 +244,11 @@ public class AdminToy
     public virtual Vector3 Position
     {
         get => Transform.localPosition;
-        set => Transform.localPosition = value;
+        set
+        {
+            Transform.localPosition = value;
+            OnTransformChanged();
+        }
     }
 
     /// <summary>
@@ -246,7 +261,11 @@ public class AdminToy
     public virtual Quaternion Rotation
     {
         get => Transform.localRotation;
-        set => Transform.localRotation = value;
+        set
+        {
+            Transform.localRotation = value;
+            OnTransformChanged();
+        }
     }
 
     /// <summary>
@@ -259,7 +278,11 @@ public class AdminToy
     public virtual Vector3 Scale
     {
         get => Transform.localScale;
-        set => Transform.localScale = value;
+        set
+        {
+            Transform.localScale = value;
+            OnTransformChanged();
+        }
     }
 
     /// <summary>
@@ -273,11 +296,24 @@ public class AdminToy
     /// Note that if the parent has <see cref="NetworkServer.Destroy"/> called on it this object automatically has <see cref="NetworkServer.Destroy"/> called on itself.
     /// To prevent destruction make sure you unparent it before that happens.
     /// </para>
+    /// <para>
+    /// Carl Mod clients have no toy parenting: the parent only exists on the server and clients receive the resulting
+    /// world position and rotation (and the local scale) while the toy is not static.
+    /// </para>
     /// </remarks>
     public Transform? Parent
     {
         get => Transform.parent;
-        set => Transform.SetParent(value, false);
+        set
+        {
+            if (Transform.parent == value)
+            {
+                return;
+            }
+
+            Transform.SetParent(value, false);
+            OnTransformChanged();
+        }
     }
 
     /// <summary>
@@ -307,7 +343,17 @@ public class AdminToy
     public bool IsStatic
     {
         get => Base.IsStatic;
-        set => Base.NetworkIsStatic = value;
+        set
+        {
+            _autoStatic = false;
+            if (!value && Base.IsStatic)
+            {
+                // The Carl Mod server only refreshes the transform SyncVars of dynamic toys; send the current state with the switch.
+                SyncTransform(Base);
+            }
+
+            Base.NetworkIsStatic = value;
+        }
     }
 
     /// <summary>
@@ -332,7 +378,19 @@ public class AdminToy
     /// <remarks>
     /// Spawn won't cascade to children toy objects, so if they are not spawned you have to call spawn on all of them.
     /// </remarks>
-    public void Spawn() => NetworkServer.Spawn(GameObject);
+    public void Spawn()
+    {
+        if (IsSpawned)
+        {
+            return;
+        }
+
+        SyncTransform(Base);
+        NetworkServer.Spawn(GameObject);
+
+        // The spawn message already carried the full state; do not send the pre-spawn SyncVar writes again as a delta.
+        Base.ClearAllDirtyBits();
+    }
 
     /// <summary>
     /// Destroys the toy on server and client.
@@ -348,6 +406,69 @@ public class AdminToy
     internal virtual void OnRemove()
     {
     }
+
+    /// <summary>
+    /// Gets whether the toy is currently network spawned.
+    /// </summary>
+    protected bool IsSpawned => Base.netId != 0 && NetworkServer.spawned.ContainsKey(Base.netId);
+
+    /// <summary>
+    /// Respawns the toy on clients so they rebuild it from its current state.
+    /// </summary>
+    /// <remarks>
+    /// Used for state the Carl Mod client only reads when the toy is created (the primitive collider).
+    /// </remarks>
+    protected void Respawn()
+    {
+        if (!IsSpawned)
+        {
+            return;
+        }
+
+        NetworkServer.UnSpawn(GameObject);
+        Spawn();
+    }
+
+    /// <summary>
+    /// Writes the transform to the toy's SyncVars. Mirror skips unchanged values, so equal state is never dirtied.
+    /// </summary>
+    /// <param name="toy">The toy to synchronize.</param>
+    /// <remarks>
+    /// Carl Mod's <see cref="AdminToyBase"/> only does this every frame for dynamic toys and has no <c>OnStartServer</c> sync,
+    /// so static toys would otherwise keep stale SyncVars. The client derives primitive colliders from <c>Scale</c>.
+    /// </remarks>
+    private protected static void SyncTransform(AdminToyBase toy)
+    {
+        Transform transform = toy.transform;
+        transform.GetPositionAndRotation(out Vector3 position, out Quaternion rotation);
+        toy.NetworkPosition = position;
+        toy.NetworkRotation = new LowPrecisionQuaternion(rotation);
+        toy.NetworkScale = transform.localScale;
+    }
+
+    /// <summary>
+    /// Keeps the SyncVars current after a wrapper transform change and leaves automatic static mode once spawned.
+    /// </summary>
+    private protected void OnTransformChanged()
+    {
+        if (_autoStatic && Base.IsStatic && IsSpawned)
+        {
+            _autoStatic = false;
+            Base.NetworkIsStatic = false;
+        }
+
+        SyncTransform(Base);
+    }
+
+    /// <summary>
+    /// Gets or sets the toy most recently instantiated by <see cref="Create{T}"/>, so its wrapper starts in automatic static mode.
+    /// </summary>
+    private static AdminToyBase? PendingAutoStatic { get; set; }
+
+    /// <summary>
+    /// Whether <see cref="IsStatic"/> was enabled by <see cref="Create{T}"/> rather than by the plugin.
+    /// </summary>
+    private bool _autoStatic;
 
 #pragma warning disable SA1204 // Static elements should appear before instance elements
     /// <summary>

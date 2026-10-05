@@ -45,6 +45,11 @@ public enum DoorName
     SurfaceEscapePrimary, // ESCAPE_PRIMARY
     SurfaceEscapeSecondary, // ESCAPE_SECONDARY
     SurfaceEscapeFinal, // ESCAPE_FINAL
+    // Carl Mod (SL 13.x map) doors with no official 14.2 equivalent. Appended so official values keep their numbers.
+    HczHidLeft, // HID_LEFT
+    HczHidRight, // HID_RIGHT
+    HczCheckpointB, // CHECKPOINT_EZ_HCZ_B
+    HczServersBottom, // SERVERS_BOTTOM
 #pragma warning restore SA1602 // Enumeration items should be documented
 #pragma warning restore CS1591 // Missing XML Comment for publicly visible type or member
 }

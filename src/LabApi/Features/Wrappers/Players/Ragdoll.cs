@@ -5,8 +5,6 @@ using PlayerRoles.PlayableScps.Scp049;
 using PlayerRoles.PlayableScps.Scp049.Zombies;
 using PlayerRoles.Ragdolls;
 using PlayerStatsSystem;
-using RelativePositioning;
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -43,13 +41,14 @@ public class Ragdoll
     /// <param name="rotation">Spawn rotation.</param>
     /// <param name="handler">Damage handler of the death cause.</param>
     /// <param name="nickname">Nickname that is visible when hovering over.</param>
-    /// <param name="scale">Spawn scale. Converted to base ragdoll scale if <see langword="null"/>.</param>
-    /// <param name="serial">Serial identity of the ragdoll.</param>
     /// <param name="owner">The owner of this ragdoll.</param>
     /// <returns>Ragdoll object or <see langword="null"/>.</returns>
-    public static Ragdoll? SpawnRagdoll(RoleTypeId role, Vector3 position, Quaternion rotation, DamageHandlerBase handler, string nickname, Vector3? scale = null, ushort? serial = null, ReferenceHub? owner = null)
+    /// <remarks>
+    /// Carl Mod ragdolls have no synchronized scale or serial, so those official parameters are absent.
+    /// </remarks>
+    public static Ragdoll? SpawnRagdoll(RoleTypeId role, Vector3 position, Quaternion rotation, DamageHandlerBase handler, string nickname, ReferenceHub? owner = null)
     {
-        BasicRagdoll ragdoll = RagdollManager.ServerCreateRagdoll(role, position, rotation, handler, nickname, scale, serial, owner);
+        BasicRagdoll? ragdoll = CreateRagdoll(role, position, rotation, handler, nickname, owner, NetworkTime.time);
         return ragdoll == null ? null : Get(ragdoll);
     }
 
@@ -73,10 +72,33 @@ public class Ragdoll
     }
 
     /// <summary>
+    /// Instantiates and spawns a ragdoll of the given role, mirroring <see cref="RagdollManager.ServerSpawnRagdoll"/>.
+    /// </summary>
+    private static BasicRagdoll? CreateRagdoll(RoleTypeId role, Vector3 position, Quaternion rotation, DamageHandlerBase handler, string nickname, ReferenceHub? owner, double creationTime)
+    {
+        if (!NetworkServer.active || !PlayerRoleLoader.TryGetRoleTemplate(role, out PlayerRoleBase template) || template is not IRagdollRole ragdollRole || ragdollRole.Ragdoll == null)
+        {
+            return null;
+        }
+
+        GameObject gameObject = Object.Instantiate(ragdollRole.Ragdoll.gameObject);
+        if (!gameObject.TryGetComponent(out BasicRagdoll ragdoll))
+        {
+            Object.Destroy(gameObject);
+            return null;
+        }
+
+        ragdoll.NetworkInfo = new RagdollData(owner!, handler, role, position, rotation, nickname, creationTime);
+        gameObject.transform.SetPositionAndRotation(position, rotation);
+        NetworkServer.Spawn(gameObject);
+        return ragdoll;
+    }
+
+    /// <summary>
     /// Event method for <see cref="RagdollManager.OnRagdollSpawned"/>.
     /// </summary>
     /// <param name="ragdoll">New ragdoll.</param>
-    private static void RagdollSpawned(BasicRagdoll ragdoll) => _ = new Ragdoll(ragdoll).Base;
+    private static void RagdollSpawned(BasicRagdoll ragdoll) => _ = Get(ragdoll);
 
     /// <summary>
     /// Event method for <see cref="RagdollManager.OnRagdollRemoved"/>.
@@ -94,7 +116,7 @@ public class Ragdoll
 
         if (CanCache)
         {
-            Dictionary.TryAdd(ragdoll, this);
+            Dictionary[ragdoll] = this;
         }
     }
 
@@ -115,15 +137,7 @@ public class Ragdoll
     public RoleTypeId Role
     {
         get => Base.NetworkInfo.RoleType;
-        set => Base.NetworkInfo = new RagdollData(
-            Base.Info.OwnerHub,
-            Base.Info.Handler,
-            value,
-            Base.Info.StartRelativePosition,
-            Base.Info.StartRelativeRotation,
-            Base.Info.Nickname,
-            Base.Info.CreationTime,
-            Base.Info.Serial);
+        set => Base.NetworkInfo = With(value, Base.Info.Nickname, Base.Info.Handler, Base.Info.StartPosition, Base.Info.StartRotation);
     }
 
     /// <summary>
@@ -132,109 +146,51 @@ public class Ragdoll
     public string Nickname
     {
         get => Base.NetworkInfo.Nickname;
-        set => Base.NetworkInfo = new RagdollData(
-            Base.Info.OwnerHub,
-            Base.Info.Handler,
-            Base.Info.RoleType,
-            Base.Info.StartRelativePosition,
-            Base.Info.StartRelativeRotation,
-            value,
-            Base.Info.CreationTime,
-            Base.Info.Serial);
+        set => Base.NetworkInfo = With(Base.Info.RoleType, value, Base.Info.Handler, Base.Info.StartPosition, Base.Info.StartRotation);
     }
 
     /// <summary>
     /// Gets or sets the ragdoll damage handler, providing death cause.
     /// </summary>
-    // TODO: Damage handler wrapper
     public DamageHandlerBase DamageHandler
     {
         get => Base.NetworkInfo.Handler;
-        set => Base.NetworkInfo = new RagdollData(
-            Base.Info.OwnerHub,
-            value,
-            Base.Info.RoleType,
-            Base.Info.StartRelativePosition,
-            Base.Info.StartRelativeRotation,
-            Base.Info.Nickname,
-            Base.Info.CreationTime,
-            Base.Info.Serial);
+        set => Base.NetworkInfo = With(Base.Info.RoleType, Base.Info.Nickname, value, Base.Info.StartPosition, Base.Info.StartRotation);
     }
 
     /// <summary>
     /// Gets or sets the position of the ragdoll.
     /// </summary>
+    /// <remarks>
+    /// Carl Mod clients only read the ragdoll pose when it spawns, so setting this respawns the ragdoll for observers.
+    /// </remarks>
     public Vector3 Position
     {
         get => Base.transform.position;
         set
         {
             Base.transform.position = value;
-            RelativePosition relPos = new(value);
-            Quaternion relRot = WaypointBase.GetRelativeRotation(relPos.WaypointId, WaypointBase.GetWorldRotation(Base.Info.StartRelativePosition.WaypointId, Base.Info.StartRelativeRotation));
-            Base.NetworkInfo = new RagdollData(
-                Base.Info.OwnerHub,
-                Base.Info.Handler,
-                Base.Info.RoleType,
-                relPos,
-                relRot,
-                Base.Info.Scale,
-                Base.Info.Nickname,
-                Base.Info.CreationTime,
-                Base.Info.Serial);
+            Base.NetworkInfo = With(Base.Info.RoleType, Base.Info.Nickname, Base.Info.Handler, value, Base.transform.rotation);
+            Resync();
         }
     }
 
     /// <summary>
     /// Gets or sets the rotation of the ragdoll.
     /// </summary>
+    /// <remarks>
+    /// Carl Mod clients only read the ragdoll pose when it spawns, so setting this respawns the ragdoll for observers.
+    /// </remarks>
     public Quaternion Rotation
     {
         get => Base.transform.rotation;
         set
         {
             Base.transform.rotation = value;
-            Quaternion relRot = WaypointBase.GetRelativeRotation(Base.Info.StartRelativePosition.WaypointId, value);
-            Base.NetworkInfo = new RagdollData(
-                Base.Info.OwnerHub,
-                Base.Info.Handler,
-                Base.Info.RoleType,
-                Base.Info.StartRelativePosition,
-                relRot,
-                Base.Info.Scale,
-                Base.Info.Nickname,
-                Base.Info.CreationTime,
-                Base.Info.Serial);
+            Base.NetworkInfo = With(Base.Info.RoleType, Base.Info.Nickname, Base.Info.Handler, Base.transform.position, value);
+            Resync();
         }
     }
-
-    /// <summary>
-    /// Gets or sets the ragdoll's scale.
-    /// Scale is set relative to the ragdoll's gameObject size.
-    /// </summary>
-    public Vector3 Scale
-    {
-        get => Base.transform.localScale;
-        set
-        {
-            Base.transform.localScale = value;
-            Base.NetworkInfo = new RagdollData(
-                Base.Info.OwnerHub,
-                Base.Info.Handler,
-                Base.Info.RoleType,
-                Base.Info.StartRelativePosition,
-                Base.Info.StartRelativeRotation,
-                Vector3.Scale(value, RagdollManager.GetDefaultScale(Role)),
-                Base.Info.Nickname,
-                Base.Info.CreationTime,
-                Base.Info.Serial);
-        }
-    }
-
-    /// <summary>
-    /// Gets the serial number of the ragdoll.
-    /// </summary>
-    public ushort Serial => Base.NetworkInfo.Serial;
 
     /// <summary>
     /// Gets or sets whether the corpse is consumed.
@@ -287,36 +243,24 @@ public class Ragdoll
         NetworkServer.Destroy(Base.gameObject);
     }
 
-    /// <summary>
-    /// Forcefully freezes this ragdoll for all clients.
-    /// </summary>
-    public void Freeze() => Base.ClientFreezeRpc();
-
-    /// <summary>
-    /// Unfreezes this ragdoll by spawning a copy of it and destroying the original. Reference to the <see cref="Base"/> changes, but no other action is required if you are referencing this object. <br/>
-    /// </summary>
-    /// <remarks>
-    /// Note that the position and rotation is set to the server one.
-    /// </remarks>
-    public void UnFreeze()
-    {
-        RagdollData data = Base.NetworkInfo;
-
-        RagdollManager.OnRagdollSpawned -= RagdollSpawned;
-        RagdollManager.OnRagdollRemoved -= RagdollRemoved;
-
-        Destroy();
-        Dictionary.Remove(Base);
-        Base = RagdollManager.ServerCreateRagdoll(data.RoleType, data.StartRelativePosition.Position, data.StartRelativeRotation, data.Handler, data.Nickname, data.Scale, data.Serial);
-        Dictionary.TryAdd(Base, this);
-
-        RagdollManager.OnRagdollSpawned += RagdollSpawned;
-        RagdollManager.OnRagdollRemoved += RagdollRemoved;
-    }
-
     /// <inheritdoc />
     public override string ToString()
     {
-        return $"[Ragdoll: Nickname={Nickname}, Role={Role}, DamageHandler={DamageHandler}, Position={Position}, Rotation={Rotation}, Scale={Scale}, IsConsumed={IsConsumed}]";
+        return $"[Ragdoll: Nickname={Nickname}, Role={Role}, DamageHandler={DamageHandler}, Position={Position}, Rotation={Rotation}, IsConsumed={IsConsumed}]";
+    }
+
+    private RagdollData With(RoleTypeId role, string nickname, DamageHandlerBase handler, Vector3 position, Quaternion rotation)
+        => new(Base.Info.OwnerHub, handler, role, position, rotation, nickname, Base.Info.CreationTime);
+
+    private void Resync()
+    {
+        GameObject gameObject = Base.gameObject;
+        if (!NetworkServer.active || !gameObject.TryGetComponent(out NetworkIdentity identity) || identity.netId == 0)
+        {
+            return;
+        }
+
+        NetworkServer.UnSpawn(gameObject);
+        NetworkServer.Spawn(gameObject);
     }
 }

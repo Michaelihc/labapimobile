@@ -110,7 +110,21 @@ public class DefaultPermissionsProvider : IPermissionsProvider
     /// <inheritdoc />
     void IPermissionsProvider.ReloadPermissions() => ReloadPermissions();
 
-    private PermissionGroup GetPlayerGroup(Player player) => _permissionsDictionary.GetValueOrDefault(player.PermissionsGroupName ?? "default") ?? PermissionGroup.Default;
+    private PermissionGroup GetPlayerGroup(Player player)
+    {
+        // Same source as official Player.PermissionsGroupName: the config_remoteadmin Members entry (user ID -> group key).
+        // Carl Mod's PermissionsHandler keeps it in the private _members dictionary and may not exist before configs load.
+        string? groupName = null;
+        Dictionary<string, string>? members = ServerStatic.PermissionsHandler?._members;
+        if (members != null && !string.IsNullOrEmpty(player.UserId))
+        {
+            members.TryGetValue(player.UserId, out groupName);
+        }
+
+        return _permissionsDictionary.TryGetValue(groupName ?? "default", out PermissionGroup group) && group != null
+            ? group
+            : PermissionGroup.Default;
+    }
 
     private string[] GetPermissions(PermissionGroup group)
     {

@@ -1,6 +1,5 @@
 using LabApi.Events.Arguments.Interfaces;
 using Respawning;
-using Respawning.Waves;
 using System;
 
 namespace LabApi.Events.Arguments.ServerEvents;
@@ -14,17 +13,17 @@ public class WaveTeamSelectingEventArgs : EventArgs, ICancellableEvent
     /// Initializes a new instance of the <see cref="WaveTeamSelectingEventArgs"/> class.
     /// </summary>
     /// <param name="wave">The wave that is about to be selected.</param>
-    public WaveTeamSelectingEventArgs(SpawnableWaveBase wave)
+    public WaveTeamSelectingEventArgs(SpawnableTeamHandlerBase wave)
     {
         IsAllowed = true;
         Wave = wave;
     }
 
     /// <summary>
-    /// Gets or sets the spawnable wave. See <see cref="SpawnableWaveBase"/> and its subclasses.<br/>
-    /// Use the <see cref="WaveManager.Waves"/> to set it to a different value.
+    /// Gets or sets the spawnable wave. See <see cref="SpawnableTeamHandlerBase"/> and its subclasses.<br/>
+    /// Use <see cref="Features.Wrappers.RespawnWave.Base"/> of a <see cref="Features.Wrappers.RespawnWaves"/> wave to set it to a different value.
     /// </summary>
-    public SpawnableWaveBase Wave { get; set; }
+    public SpawnableTeamHandlerBase Wave { get; set; }
 
     /// <inheritdoc />
     public bool IsAllowed { get; set; }

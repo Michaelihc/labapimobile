@@ -23,16 +23,6 @@ public static partial class ServerEvents
     public static event LabEventHandler? Shutdown;
 
     /// <summary>
-    /// Gets called when Deadman Sequence is activated.
-    /// </summary>
-    public static event LabEventHandler? DeadmanSequenceActivated;
-
-    /// <summary>
-    /// Gets called when Deadman Sequence is activating.
-    /// </summary>
-    public static event LabEventHandler<DeadmanSequenceActivatingEventArgs>? DeadmanSequenceActivating;
-
-    /// <summary>
     /// Gets called when round end conditions are checked.
     /// </summary>
     public static event LabEventHandler<RoundEndingConditionsCheckEventArgs>? RoundEndingConditionsCheck;
@@ -228,26 +218,6 @@ public static partial class ServerEvents
     public static event LabEventHandler<ElevatorSequenceChangedEventArgs>? ElevatorSequenceChanged;
 
     /// <summary>
-    /// Gets called when a faction's influence is changing.
-    /// </summary>
-    public static event LabEventHandler<ModifyingFactionInfluenceEventArgs>? ModifyingFactionInfluence;
-
-    /// <summary>
-    /// Gets called when a faction's influence has changed.
-    /// </summary>
-    public static event LabEventHandler<ModifiedFactionInfluenceEventArgs>? ModifiedFactionInfluence;
-
-    /// <summary>
-    /// Gets called when a faction is achieving a milestone.
-    /// </summary>
-    public static event LabEventHandler<AchievingMilestoneEventArgs>? AchievingMilestone;
-
-    /// <summary>
-    /// Gets called when a faction achieved a milestone.
-    /// </summary>
-    public static event LabEventHandler<AchievedMilestoneEventArgs>? AchievedMilestone;
-
-    /// <summary>
     /// Gets called when a blast door changes state.
     /// </summary>
     public static event LabEventHandler<BlastDoorChangingEventArgs>? BlastDoorChanging;
@@ -271,16 +241,6 @@ public static partial class ServerEvents
     /// Gets called when a door's lock state is changed.
     /// </summary>
     public static event LabEventHandler<DoorLockChangedEventArgs>? DoorLockChanged;
-
-    /// <summary>
-    /// Gets called when a door is repairing.
-    /// </summary>
-    public static event LabEventHandler<DoorRepairingEventArgs>? DoorRepairing;
-
-    /// <summary>
-    /// Gets called when a door is repaired.
-    /// </summary>
-    public static event LabEventHandler<DoorRepairedEventArgs>? DoorRepaired;
 
     /// <summary>
     /// Gets called when a door is damaging.

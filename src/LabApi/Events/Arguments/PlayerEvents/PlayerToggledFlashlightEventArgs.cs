@@ -1,4 +1,4 @@
-﻿using InventorySystem.Items.ToggleableLights;
+﻿using ToggleableLightItemBase = InventorySystem.Items.Flashlight.FlashlightItem;
 using LabApi.Events.Arguments.Interfaces;
 using LabApi.Features.Wrappers;
 using System;

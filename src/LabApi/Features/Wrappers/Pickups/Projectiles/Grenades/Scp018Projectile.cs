@@ -66,23 +66,8 @@ public class Scp018Projectile : TimedGrenadeProjectile
     /// </summary>
     public Vector3 Velocity
     {
-        get
-        {
-            if (PickupStandardPhysics == null)
-            {
-                return Vector3.zero;
-            }
-
-            return PickupStandardPhysics.Rb.linearVelocity;
-        }
-
-        set
-        {
-            if (PickupStandardPhysics != null)
-            {
-                PickupStandardPhysics.Rb.linearVelocity = value;
-            }
-        }
+        get => Base.RigidBody.linearVelocity;
+        set => Base.RigidBody.linearVelocity = value;
     }
 
     /// <summary>
@@ -95,7 +80,7 @@ public class Scp018Projectile : TimedGrenadeProjectile
     /// </para>
     /// </summary>
     /// <param name="velSqrt">Velocity to play the sound for.</param>
-    public void PlayBounceSound(float velSqrt = -1) => Base.RpcPlayBounce(velSqrt < 0 ? Velocity.sqrMagnitude : velSqrt);
+    public void PlayBounceSound(float velSqrt = -1) => Base.RpcMakeSound(velSqrt < 0 ? Velocity.sqrMagnitude : velSqrt);
 
     /// <inheritdoc/>
     internal override void OnRemove()

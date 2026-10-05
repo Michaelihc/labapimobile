@@ -1,4 +1,4 @@
-﻿using Decals;
+using Knife.DeferredDecals;
 using LabApi.Events.Arguments.Interfaces;
 using LabApi.Features.Wrappers;
 using System;

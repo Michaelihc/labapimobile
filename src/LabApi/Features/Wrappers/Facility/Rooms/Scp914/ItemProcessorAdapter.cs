@@ -1,8 +1,10 @@
-﻿using InventorySystem.Items;
+using InventorySystem;
+using InventorySystem.Items;
 using InventorySystem.Items.Pickups;
 using LabApi.Features.Interfaces;
 using Scp914;
 using Scp914.Processors;
+using UnityEngine;
 
 namespace LabApi.Features.Wrappers;
 
@@ -20,24 +22,46 @@ internal class ItemProcessorAdapter : Scp914ItemProcessor
     /// Used internally by the base game.
     /// </summary>
     /// <param name="setting">The setting to update the item.</param>
-    /// <param name="item">The base game item instance.</param>
-    /// <returns>The <see cref="Scp914Result"/>.</returns>
-    public override Scp914Result UpgradeInventoryItem(Scp914KnobSetting setting, ItemBase item)
+    /// <param name="hub">The owner of the item.</param>
+    /// <param name="serial">The serial of the item to upgrade.</param>
+    /// <returns>The resulting item, or <see langword="null"/>.</returns>
+    public override ItemBase? OnInventoryItemUpgraded(Scp914KnobSetting setting, ReferenceHub hub, ushort serial)
     {
-        if (Processor.UsePickupMethodOnly)
+        if (!hub.inventory.UserInventory.Items.TryGetValue(serial, out ItemBase item))
         {
-            return base.UpgradeInventoryItem(setting, item);
+            return null;
         }
 
-        return Processor.UpgradeItem(setting, Item.Get(item));
+        if (!Processor.UsePickupMethodOnly)
+        {
+            return Processor.UpgradeItem(setting, Item.Get(item)!);
+        }
+
+        // Same as the official default: the item is upgraded as a pickup and the result is given back to the owner.
+        ItemPickupBase? dropped = hub.inventory.ServerDropItem(serial);
+        if (dropped == null)
+        {
+            return null;
+        }
+
+        ItemPickupBase? result = Processor.UpgradePickup(setting, Pickup.Get(dropped)!);
+        if (result == null)
+        {
+            return null;
+        }
+
+        ItemBase? newItem = hub.inventory.ServerAddItem(result.Info.ItemId, result.Info.Serial, result);
+        result.DestroySelf();
+        return newItem;
     }
 
     /// <summary>
     /// Used internally by the base game.
     /// </summary>
     /// <param name="setting">The setting to update the item.</param>
-    /// <param name="pickup">The base game pickup instance.</param>
-    /// <returns>The <see cref="Scp914Result"/>.</returns>
-    public override Scp914Result UpgradePickup(Scp914KnobSetting setting, ItemPickupBase pickup)
-        => Processor.UpgradePickup(setting, Pickup.Get(pickup));
+    /// <param name="ipb">The base game pickup instance.</param>
+    /// <param name="newPosition">The output position computed by the game.</param>
+    /// <returns>The resulting pickup, or <see langword="null"/>.</returns>
+    public override ItemPickupBase? OnPickupUpgraded(Scp914KnobSetting setting, ItemPickupBase ipb, Vector3 newPosition)
+        => Processor.UpgradePickup(setting, Pickup.Get(ipb)!);
 }

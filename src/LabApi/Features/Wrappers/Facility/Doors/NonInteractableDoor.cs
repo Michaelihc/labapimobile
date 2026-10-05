@@ -66,7 +66,7 @@ public class NonInteractableDoor : Door
     public bool Is106Passable
     {
         get => Base.IsScp106Passable;
-        set => Base.IsScp106Passable = value;
+        set => Base._blockScp106 = !value;
     }
 
     /// <summary>

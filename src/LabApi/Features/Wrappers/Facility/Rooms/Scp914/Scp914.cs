@@ -1,5 +1,6 @@
 ﻿using InventorySystem;
 using InventorySystem.Items;
+using LabApi.Events.Patches.Facility;
 using LabApi.Features.Interfaces;
 using MapGeneration;
 using Scp914;
@@ -34,7 +35,7 @@ public class Scp914 : Room
     /// </summary>
     public static Scp914KnobSetting KnobSetting
     {
-        get => Scp914Controller.Singleton.KnobSetting;
+        get => Scp914Controller.Singleton._knobSetting;
         set => Scp914Controller.Singleton.Network_knobSetting = value;
     }
 
@@ -43,21 +44,21 @@ public class Scp914 : Room
     /// </summary>
     public static bool IsUpgrading
     {
-        get => Scp914Controller.Singleton.IsUpgrading;
+        get => Scp914Controller.Singleton._isUpgrading;
         set
         {
-            if (Scp914Controller.Singleton.IsUpgrading == value)
+            if (Scp914Controller.Singleton._isUpgrading == value)
             {
                 return;
             }
 
             if (value)
             {
-                Scp914Controller.Singleton.Upgrade();
+                Scp914Patches.StartUpgrade(Scp914Controller.Singleton);
             }
             else
             {
-                Scp914Controller.Singleton.IsUpgrading = value;
+                Scp914Controller.Singleton._isUpgrading = false;
                 SequenceCooldown = 0.0f;
             }
         }
@@ -68,8 +69,8 @@ public class Scp914 : Room
     /// </summary>
     public static Scp914Mode Mode
     {
-        get => Scp914Controller.Singleton.ConfigMode.Value;
-        set => Scp914Controller.Singleton.ConfigMode.Value = value;
+        get => Scp914Controller.Singleton._configMode.Value;
+        set => Scp914Controller.Singleton._configMode.Value = value;
     }
 
     /// <summary>
@@ -87,8 +88,8 @@ public class Scp914 : Room
     /// </summary>
     public static Vector3 ChamberSize
     {
-        get => Scp914Controller.Singleton.ChamberSize;
-        set => Scp914Controller.Singleton.ChamberSize = value;
+        get => Scp914Controller.Singleton._chamberSize;
+        set => Scp914Controller.Singleton._chamberSize = value;
     }
 
     /// <summary>
@@ -96,8 +97,8 @@ public class Scp914 : Room
     /// </summary>
     public static float KnobChangeSequenceTime
     {
-        get => Scp914Controller.Singleton.KnobChangeCooldown;
-        set => Scp914Controller.Singleton.KnobChangeCooldown = value;
+        get => Scp914Controller.Singleton._knobChangeCooldown;
+        set => Scp914Controller.Singleton._knobChangeCooldown = value;
     }
 
     /// <summary>
@@ -105,8 +106,8 @@ public class Scp914 : Room
     /// </summary>
     public static float UpgradeSequenceTime
     {
-        get => Scp914Controller.Singleton.TotalSequenceTime;
-        set => Scp914Controller.Singleton.TotalSequenceTime = value;
+        get => Scp914Controller.Singleton._totalSequenceTime;
+        set => Scp914Controller.Singleton._totalSequenceTime = value;
     }
 
     /// <summary>
@@ -118,8 +119,8 @@ public class Scp914 : Room
     /// </remarks>
     public static float SequenceCooldown
     {
-        get => Scp914Controller.Singleton.RemainingCooldown;
-        set => Scp914Controller.Singleton.RemainingCooldown = value;
+        get => Scp914Controller.Singleton._remainingCooldown;
+        set => Scp914Controller.Singleton._remainingCooldown = value;
     }
 
     /// <summary>
@@ -127,8 +128,8 @@ public class Scp914 : Room
     /// </summary>
     public static float DoorCloseDelay
     {
-        get => Scp914Controller.Singleton.DoorCloseTime;
-        set => Scp914Controller.Singleton.DoorCloseTime = value;
+        get => Scp914Controller.Singleton._doorCloseTime;
+        set => Scp914Controller.Singleton._doorCloseTime = value;
     }
 
     /// <summary>
@@ -139,8 +140,8 @@ public class Scp914 : Room
     /// </remarks>
     public static float ItemUpgradeDelay
     {
-        get => Scp914Controller.Singleton.ItemUpgradeTime;
-        set => Scp914Controller.Singleton.ItemUpgradeTime = value;
+        get => Scp914Controller.Singleton._itemUpgradeTime;
+        set => Scp914Controller.Singleton._itemUpgradeTime = value;
     }
 
     /// <summary>
@@ -151,8 +152,8 @@ public class Scp914 : Room
     /// </remarks>
     public static float DoorOpenDelay
     {
-        get => Scp914Controller.Singleton.DoorOpenTime;
-        set => Scp914Controller.Singleton.DoorOpenTime = value;
+        get => Scp914Controller.Singleton._doorOpenTime;
+        set => Scp914Controller.Singleton._doorOpenTime = value;
     }
 
     /// <summary>
@@ -354,12 +355,12 @@ public class Scp914 : Room
     /// <summary>
     /// Gets the intake <see cref="Door"/> of the SCP-914 machine.
     /// </summary>
-    public Door IntakeDoor => Door.Get(Scp914Controller.Singleton.Doors.Last());
+    public Door IntakeDoor => Door.Get(Scp914Controller.Singleton._doors.Last());
 
     /// <summary>
     /// Gets the output <see cref="Door"/> of the SCP-914 machine.
     /// </summary>
-    public Door OutputDoor => Door.Get(Scp914Controller.Singleton.Doors.First());
+    public Door OutputDoor => Door.Get(Scp914Controller.Singleton._doors.First());
 
     /// <summary>
     /// An internal method to set the instance to null when the base object is destroyed.

@@ -1,5 +1,5 @@
 using LabApi.Features.Wrappers;
-using Respawning.Waves;
+using Respawning;
 using System;
 using System.Collections.Generic;
 
@@ -15,7 +15,7 @@ public class WaveRespawnedEventArgs : EventArgs
     /// </summary>
     /// <param name="wave">The wave that is respawning.</param>
     /// <param name="players">The players that were respawned.</param>
-    public WaveRespawnedEventArgs(SpawnableWaveBase wave, List<Player> players)
+    public WaveRespawnedEventArgs(SpawnableTeamHandlerBase wave, List<Player> players)
     {
         Players = players;
         Wave = RespawnWaves.Get(wave)!;

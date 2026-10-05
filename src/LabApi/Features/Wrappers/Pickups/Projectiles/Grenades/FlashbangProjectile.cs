@@ -61,8 +61,8 @@ public class FlashbangProjectile : TimedGrenadeProjectile
     /// </summary>
     public LayerMask BlockingMask
     {
-        get => Base.BlindingMask;
-        set => Base.BlindingMask = value;
+        get => Base._blindingMask;
+        set => Base._blindingMask = value;
     }
 
     /// <summary>
@@ -71,8 +71,8 @@ public class FlashbangProjectile : TimedGrenadeProjectile
     /// </summary>
     public float BaseBlindTime
     {
-        get => Base.BlindTime;
-        set => Base.BlindTime = value;
+        get => Base._blindTime;
+        set => Base._blindTime = value;
     }
 
     /// <inheritdoc/>

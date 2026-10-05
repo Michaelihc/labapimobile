@@ -72,10 +72,14 @@ public class TimedGrenadeProjectile : Projectile
 
         TimeGrenade newPickup = GameObject.Instantiate(grenade, pos, Quaternion.identity);
 
-        PickupSyncInfo psi = new(throwable.ItemTypeId, throwable.Weight, locked: true);
+        PickupSyncInfo psi = new(throwable.ItemTypeId, pos, Quaternion.identity, throwable.Weight)
+        {
+            Locked = true,
+        };
 
-        newPickup.Info = psi;
+        newPickup.NetworkInfo = psi;
         newPickup.PreviousOwner = new Footprint(owner?.ReferenceHub);
+        newPickup.InfoReceived(default, psi);
         NetworkServer.Spawn(newPickup.gameObject);
 
         newPickup.ServerActivate();
@@ -112,10 +116,17 @@ public class TimedGrenadeProjectile : Projectile
     /// <summary>
     /// Gets or sets the remaining time until detonation in seconds.
     /// </summary>
+    /// <remarks>
+    /// Returns 0 when the fuse has not been activated.
+    /// </remarks>
     public double RemainingTime
     {
-        get => Base.TargetTime;
-        set => Base.TargetTime = NetworkTime.time + value;
+        get => Base._fuseDeadline > 0.0 ? System.Math.Max(0.0, Base._fuseDeadline - NetworkTime.time) : 0.0;
+        set
+        {
+            Base.Network_fuseDeadline = NetworkTime.time + value;
+            Base.TargetTime = Time.timeSinceLevelLoad + (float)value;
+        }
     }
 
     /// <summary>

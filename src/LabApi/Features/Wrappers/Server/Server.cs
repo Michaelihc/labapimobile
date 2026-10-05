@@ -1,5 +1,4 @@
-﻿using Achievements;
-using CommandSystem;
+﻿using CommandSystem;
 using CustomPlayerEffects;
 using InventorySystem.Configs;
 using LabApi.Features.Permissions;
@@ -10,8 +9,6 @@ using RemoteAdmin;
 using RoundRestarting;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using UnityEngine;
 using static BanHandler;
 
@@ -131,31 +128,12 @@ public static class Server
     }
 
     /// <summary>
-    /// Gets or sets a value indicating whether achievement granting is enabled.
-    /// </summary>
-    public static bool AchievementsEnabled
-    {
-        get => !AchievementManager.AchievementsDisabled;
-        set
-        {
-            if (AchievementManager.AchievementsDisabled != value)
-            {
-                return;
-            }
-
-            AchievementManager.AchievementsDisabled = !value;
-            ServerConfigSynchronizer.Singleton.RefreshMainBools();
-            ServerConfigSynchronizer.OnRefreshed?.Invoke();
-        }
-    }
-
-    /// <summary>
     /// Gets or sets the server name as seen on the server list.
     /// </summary>
     public static string ServerListName
     {
-        get => ServerConsole.ServerName;
-        set => ServerConsole.ServerName = value;
+        get => ServerConsole._serverName;
+        set => ServerConsole._serverName = value;
     }
 
     /// <summary>
@@ -174,8 +152,8 @@ public static class Server
     // TODO: maybe move to a player list wrapper?
     public static float PlayerListNameRefreshRate
     {
-        get => PlayerList.RefreshRate.Value;
-        set => PlayerList.RefreshRate.Value = value;
+        get => PlayerList._refreshRate.Value;
+        set => PlayerList._refreshRate.Value = value;
     }
 
     /// <summary>
@@ -209,7 +187,7 @@ public static class Server
     /// <summary>
     /// Gets the <see cref="CommandSystem.GameConsoleCommandHandler"/> instance.
     /// </summary>
-    public static GameConsoleCommandHandler GameConsoleCommandHandler => GameCore.Console.ConsoleCommandHandler;
+    public static GameConsoleCommandHandler GameConsoleCommandHandler => GameCore.Console.Singleton.ConsoleCommandHandler;
 
     /// <summary>
     /// Gets the <see cref="ServerShutdown.ServerShutdownState"/> of the server.
@@ -484,38 +462,44 @@ public static class Server
     /// Sends the admin chat messages to all players with <see cref="PlayerPermissions.AdminChat"/> permissions.
     /// </summary>
     /// <param name="message">The message to send.</param>
-    /// <param name="isSilent">Whether the message should not appear in broadcast.</param>
-    public static void SendAdminChatMessage(string message, bool isSilent = false) => SendAdminChatMessage(Player.ReadyList.Where(static n => n.UserGroup != null && PermissionsHandler.IsPermitted(n.UserGroup.Permissions, PlayerPermissions.AdminChat)), message, isSilent);
+    /// <param name="isSilent">Ignored: the Carl Mod client always shows admin chat as a broadcast.</param>
+    public static void SendAdminChatMessage(string message, bool isSilent = false)
+    {
+        string toSend = "@" + message;
+        foreach (ReferenceHub hub in ReferenceHub.AllHubs)
+        {
+            if (hub.Mode == ClientInstanceMode.Unverified || hub.Mode == ClientInstanceMode.DedicatedServer)
+            {
+                continue;
+            }
+
+            if (!hub.serverRoles.AdminChatPerms && !hub.serverRoles.RaEverywhere)
+            {
+                continue;
+            }
+
+            hub.queryProcessor.TargetReply(hub.queryProcessor.connectionToClient, toSend, true, false, string.Empty);
+        }
+    }
 
     /// <summary>
     /// Sends admin chat message to all specified players.
     /// </summary>
     /// <param name="targetPlayers">The target players.</param>
     /// <param name="message">The message to send.</param>
-    /// <param name="isSilent">Whether the message should not appear in broadcast.</param>
+    /// <param name="isSilent">Ignored: the Carl Mod client always shows admin chat as a broadcast.</param>
     public static void SendAdminChatMessage(IEnumerable<Player> targetPlayers, string message, bool isSilent = false)
     {
-        StringBuilder sb = StringBuilderPool.Shared.Rent();
-
-        sb.Append(Host!.NetworkId);
-        sb.Append('!');
-
-        if (isSilent)
-        {
-            sb.Append("@@");
-        }
-
-        sb.Append(message);
-
-        string toSend = StringBuilderPool.Shared.ToStringReturn(sb);
+        string toSend = "@" + message;
         foreach (Player player in targetPlayers)
         {
-            if (!player.IsPlayer || !player.IsReady)
+            ReferenceHub hub = player.ReferenceHub;
+            if (hub == null || hub.Mode == ClientInstanceMode.Unverified || hub.Mode == ClientInstanceMode.DedicatedServer)
             {
                 continue;
             }
 
-            player.ReferenceHub.encryptedChannelManager.TrySendMessageToClient(toSend, EncryptedChannelManager.EncryptedChannel.AdminChat);
+            hub.queryProcessor.TargetReply(hub.queryProcessor.connectionToClient, toSend, true, false, string.Empty);
         }
     }
 

@@ -1,5 +1,4 @@
-﻿using CentralAuth;
-using CommandSystem;
+﻿using CommandSystem;
 using CustomPlayerEffects;
 using Footprinting;
 using Generators;
@@ -10,6 +9,7 @@ using InventorySystem.Items;
 using InventorySystem.Items.Pickups;
 using InventorySystem.Items.Usables.Scp330;
 using LabApi.Features.Enums;
+using LabApi.Events.Patches.Internal;
 using LabApi.Features.Stores;
 using MapGeneration;
 using Mirror;
@@ -18,7 +18,6 @@ using NorthwoodLib.Pools;
 using PlayerRoles;
 using PlayerRoles.FirstPersonControl;
 using PlayerRoles.FirstPersonControl.NetworkMessages;
-using PlayerRoles.FirstPersonControl.Thirdperson.Subcontrollers;
 using PlayerRoles.PlayableScps.HumeShield;
 using PlayerRoles.Spectating;
 using PlayerRoles.Voice;
@@ -30,7 +29,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using UnityEngine;
 using Utils.Networking;
-using Utils.NonAllocLINQ;
 using VoiceChat;
 using VoiceChat.Playbacks;
 using static PlayerStatsSystem.AhpStat;
@@ -100,17 +98,47 @@ public class Player
     /// <summary>
     /// Gets the amount of ready players or dummies.
     /// </summary>
-    public static int Count => ReadyList.Count();
+    public static int Count
+    {
+        get
+        {
+            int count = 0;
+            foreach (Player player in Dictionary.Values)
+            {
+                if (player.IsDummy || (player.IsPlayer && player.IsReady))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
 
     /// <summary>
     /// Gets the amount of non-verified players.
     /// </summary>
-    public static int NonVerifiedCount => UnauthenticatedList.Count();
+    public static int NonVerifiedCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (Player player in Dictionary.Values)
+            {
+                if (player.IsPlayer && !player.IsReady)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
 
     /// <summary>
     /// Gets the amount of connected players. Regardless of their authentication status.
     /// </summary>
-    public static int ConnectionsCount => LiteNetLib4MirrorCore.Host.ConnectedPeersCount;
+    public static int ConnectionsCount => LiteNetLib4MirrorCore.Host.PeersCount;
 
     /// <summary>
     /// Validates the custom info text and returns result whether it is valid or invalid.<br/>
@@ -126,7 +154,20 @@ public class Player
     /// <param name="text">The text to check on.</param>
     /// <param name="rejectionReason">Out parameter containing rejection reason.</param>
     /// <returns>Whether is the info parameter valid.</returns>
-    public static bool ValidateCustomInfo(string text, out string rejectionReason) => NicknameSync.ValidateCustomInfo(text, out rejectionReason);
+    /// <remarks>
+    /// The Carl Mod client escapes every rich text tag in custom info, so only the regex is checked here.
+    /// </remarks>
+    public static bool ValidateCustomInfo(string text, out string rejectionReason)
+    {
+        rejectionReason = string.Empty;
+        if (string.IsNullOrEmpty(text) || Misc.PlayerCustomInfoRegex.IsMatch(text))
+        {
+            return true;
+        }
+
+        rejectionReason = "Provided text doesn't match the PlayerCustomInfo regex.";
+        return false;
+    }
 
     /// <summary>
     /// Gets a all players matching the criteria specified by the <see cref="PlayerSearchFlags"/>.
@@ -204,7 +245,10 @@ public class Player
         list.Clear();
 
         // And then we add all the players to the list.
-        list.AddRange(referenceHubs.Select(Get)!);
+        foreach (ReferenceHub hub in referenceHubs)
+        {
+            list.Add(Get(hub));
+        }
 
         // We finally return the list.
         return list;
@@ -358,19 +402,23 @@ public class Player
             return false;
         }
 
-        if (UserIdCache.TryGetValue(userId!, out player) && player.IsOnline)
+        if (UserIdCache.TryGetValue(userId!, out player) && !player.IsDestroyed && string.Equals(player.UserId, userId, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        player = List.FirstOrDefault(x => x.UserId == userId);
-        if (player == null)
+        foreach (Player candidate in Dictionary.Values)
         {
-            return false;
+            if (candidate.UserId == userId)
+            {
+                UserIdCache[userId!] = candidate;
+                player = candidate;
+                return true;
+            }
         }
 
-        UserIdCache[userId!] = player;
-        return true;
+        player = null;
+        return false;
     }
 
     #endregion
@@ -392,8 +440,14 @@ public class Player
     /// <returns>Whether the player was successfully retrieved.</returns>
     public static bool TryGet(int playerId, [NotNullWhen(true)] out Player? player)
     {
-        player = List.FirstOrDefault(n => n.PlayerId == playerId);
-        return player != null;
+        if (!ReferenceHub.TryGetHub(playerId, out ReferenceHub hub))
+        {
+            player = null;
+            return false;
+        }
+
+        player = Get(hub);
+        return true;
     }
 
     #endregion
@@ -457,9 +511,15 @@ public class Player
     /// <returns>True if the players are found, false otherwise.</returns>
     public static bool TryGetPlayersByName(string input, out List<Player> players)
     {
-        players = GetNonAlloc(
-            ReferenceHub.AllHubs.Where(x => x.nicknameSync.Network_myNickSync.StartsWith(input, StringComparison.OrdinalIgnoreCase)),
-            ListPool<Player>.Shared.Rent());
+        players = ListPool<Player>.Shared.Rent();
+        foreach (ReferenceHub hub in ReferenceHub.AllHubs)
+        {
+            string? nick = hub.nicknameSync.Network_myNickSync;
+            if (nick != null && nick.StartsWith(input, StringComparison.OrdinalIgnoreCase))
+            {
+                players.Add(Get(hub));
+            }
+        }
 
         return players.Count > 0;
     }
@@ -527,15 +587,18 @@ public class Player
     {
         try
         {
-            if (referenceHub.authManager.UserId != null)
+            string? userId = referenceHub.characterClassManager.UserId;
+            if (userId != null)
             {
-                UserIdCache.Remove(referenceHub.authManager.UserId);
+                UserIdCache.Remove(userId);
             }
 
-            if (TryGet(referenceHub.gameObject, out Player? player))
+            if (Dictionary.TryGetValue(referenceHub, out Player player))
             {
                 CustomDataStoreManager.RemovePlayer(player);
             }
+
+            HealthStatMaxValuePatch.Overrides.Remove(referenceHub);
 
             if (referenceHub.isLocalPlayer)
             {
@@ -566,6 +629,11 @@ public class Player
     /// The <see cref="ReferenceHub">Reference Hub</see> of the player.
     /// </summary>
     public ReferenceHub ReferenceHub { get; }
+
+    /// <summary>
+    /// Gets or sets the room last seen by the room tracker that raises <see cref="Events.Handlers.PlayerEvents.RoomChanged"/>.
+    /// </summary>
+    internal RoomIdentifier? TrackedRoom { get; set; }
 
     /// <summary>
     /// Gets the player's <see cref="GameObject"/>.
@@ -599,12 +667,15 @@ public class Player
     /// <summary>
     /// Gets whether the player is a dummy instance.
     /// </summary>
-    public bool IsDummy => ReferenceHub.authManager.InstanceMode == ClientInstanceMode.Dummy;
+    /// <remarks>
+    /// Carl Mod dummies are spawned by <see cref="ServerDummy.Spawn"/> and use a <see cref="ServerDummyConnection"/>.
+    /// </remarks>
+    public bool IsDummy => ReferenceHub.connectionToClient is ServerDummyConnection;
 
     /// <summary>
     /// Gets the Player's User ID.
     /// </summary>
-    public string UserId => ReferenceHub.authManager.UserId;
+    public string UserId => ReferenceHub.characterClassManager.UserId;
 
     /// <summary>
     /// Gets the player's Network ID.
@@ -646,7 +717,7 @@ public class Player
     /// <summary>
     /// Gets if the player is properly connected and authenticated.
     /// </summary>
-    public bool IsReady => ReferenceHub.authManager.InstanceMode != ClientInstanceMode.Unverified && ReferenceHub.nicknameSync.NickSet;
+    public bool IsReady => ReferenceHub.characterClassManager.InstanceMode != ClientInstanceMode.Unverified && ReferenceHub.nicknameSync.NickSet;
 
     /// <summary>
     /// Gets the player's IP address.
@@ -670,7 +741,10 @@ public class Player
     /// <summary>
     /// Get's the player's current role unique identifier.
     /// </summary>
-    public int LifeId => RoleBase.UniqueLifeIdentifier;
+    /// <remarks>
+    /// The Carl Mod game has no role life identifier; LabAPI assigns a new value each time a role is initialized.
+    /// </remarks>
+    public int LifeId { get; internal set; }
 
     /// <summary>
     /// Gets the Player's Nickname.
@@ -724,10 +798,13 @@ public class Player
     /// <summary>
     /// Gets or sets the player's current maximum health.
     /// </summary>
+    /// <remarks>
+    /// The override lasts until the player's role changes. The client still scales its health bar to the role's default maximum.
+    /// </remarks>
     public float MaxHealth
     {
         get => ReferenceHub.playerStats.GetModule<HealthStat>().MaxValue;
-        set => ReferenceHub.playerStats.GetModule<HealthStat>().MaxValue = value;
+        set => HealthStatMaxValuePatch.Overrides[ReferenceHub] = value;
     }
 
     /// <summary>
@@ -741,11 +818,11 @@ public class Player
         set
         {
             AhpStat ahp = ReferenceHub.playerStats.GetModule<AhpStat>();
-            ahp.ServerKillAllProcesses();
+            ahp._activeProcesses.Clear();
 
             if (value > 0)
             {
-                ReferenceHub.playerStats.GetModule<AhpStat>().ServerAddProcess(value, MaxArtificialHealth, 0f, 1f, 0f, false);
+                ahp.ServerAddProcess(value, MaxArtificialHealth, 0f, 1f, 0f, false);
             }
         }
     }
@@ -757,7 +834,7 @@ public class Player
     public float MaxArtificialHealth
     {
         get => ReferenceHub.playerStats.GetModule<AhpStat>().MaxValue;
-        set => ReferenceHub.playerStats.GetModule<AhpStat>().MaxValue = value;
+        set => ReferenceHub.playerStats.GetModule<AhpStat>()._maxSoFar = value;
     }
 
     /// <summary>
@@ -770,14 +847,13 @@ public class Player
     }
 
     /// <summary>
-    /// Gets or sets the player's maximum hume shield value.
+    /// Gets the player's maximum hume shield value.
     /// Note: This value may change if the player passes a new hume shield threshold for SCPs.
     /// </summary>
-    public float MaxHumeShield
-    {
-        get => ReferenceHub.playerStats.GetModule<HumeShieldStat>().MaxValue;
-        set => ReferenceHub.playerStats.GetModule<HumeShieldStat>().MaxValue = value;
-    }
+    /// <remarks>
+    /// The Carl Mod game derives the maximum from the role's shield-over-health curve, so it cannot be set.
+    /// </remarks>
+    public float MaxHumeShield => ReferenceHub.playerStats.GetModule<HumeShieldStat>().MaxValue;
 
     /// <summary>
     /// Gets or sets the current regeneration rate of the hume shield per second.
@@ -834,29 +910,6 @@ public class Player
     }
 
     /// <summary>
-    /// Gets or sets the player's current gravity. Default value is <see cref="FpcGravityController.DefaultGravity"/>.<br/>
-    /// If the player's current role is not first person controlled (inherit from <see cref="IFpcRole"/> then <see cref="Vector3.zero"/> is returned.<br/>
-    /// Y-axis is up and down. Negative values makes the player go down. Positive upwards. Player must not be grounded in order for gravity to take effect.
-    /// </summary>
-    public Vector3 Gravity
-    {
-        get
-        {
-            if (ReferenceHub.roleManager.CurrentRole is IFpcRole role)
-            {
-                return role.FpcModule.Motor.GravityController.Gravity;
-            }
-
-            return Vector3.zero;
-        }
-
-        set
-        {
-            FpcGravityController.ServerSetGravity(ReferenceHub, value);
-        }
-    }
-
-    /// <summary>
     /// Gets a value indicating whether the player has remote admin access.
     /// </summary>
     public bool RemoteAdminAccess => ReferenceHub.serverRoles.RemoteAdmin;
@@ -864,7 +917,7 @@ public class Player
     /// <summary>
     /// Gets a value indicating whether the player has Do-Not-Track enabled.
     /// </summary>
-    public bool DoNotTrack => ReferenceHub.authManager.DoNotTrack;
+    public bool DoNotTrack => ReferenceHub.serverRoles.DoNotTrack;
 
     /// <summary>
     /// Gets or sets a value indicating whether the player is in overwatch mode.
@@ -918,18 +971,6 @@ public class Player
     }
 
     /// <summary>
-    /// Gets or sets whether this player can be spectated by other players.
-    /// </summary>
-    /// <remarks>
-    /// This property is reset when player leaves.
-    /// </remarks>
-    public bool IsSpectatable
-    {
-        get => !SpectatableVisibilityManager.IsHidden(ReferenceHub);
-        set => SpectatableVisibilityManager.SetHidden(ReferenceHub, !value);
-    }
-
-    /// <summary>
     /// Gets or sets the player's current <see cref="Item">item</see>.
     /// </summary>
     public Item? CurrentItem
@@ -967,7 +1008,10 @@ public class Player
     /// It is not guarantee that the <see cref="Position"/> will match the exact same room it should be in due to the caching.<br/>
     /// May be <see langword="null"/> if the player is in the void.
     /// </summary>
-    public Room? CachedRoom => ReferenceHub.TryGetCurrentRoom(out RoomIdentifier rid) ? Room.Get(rid) : null;
+    /// <remarks>
+    /// The Carl Mod server has no per-player room cache, so this resolves the room grid cell at the player's position.
+    /// </remarks>
+    public Room? CachedRoom => Room.Get(RoomIdUtils.RoomAtPosition(ReferenceHub.transform.position));
 
     /// <summary>
     /// Gets the <see cref="FacilityZone"/> for the player's current room. Returns <see cref="FacilityZone.None"/> if the room is null.
@@ -1014,7 +1058,7 @@ public class Player
     /// <summary>
     /// Gets the player's default permission group name. Or null if the player is not in a group.
     /// </summary>
-    public string? PermissionsGroupName => ServerStatic.PermissionsHandler.Members.GetValueOrDefault(UserId);
+    public string? PermissionsGroupName => UserId != null && ServerStatic.PermissionsHandler._members.TryGetValue(UserId, out string group) ? group : null;
 
     /// <summary>s
     /// Gets the player's unit ID, or -1 if the role is not a <see cref="HumanRole"/>.
@@ -1024,7 +1068,7 @@ public class Player
     /// <summary>
     /// Gets a value indicating whether the player has a reserved slot.
     /// </summary>
-    public bool HasReservedSlot => ReservedSlot.HasReservedSlot(UserId);
+    public bool HasReservedSlot => ReservedSlot.HasReservedSlot(UserId, out _);
 
     /// <summary>
     /// Gets the player's velocity.
@@ -1085,12 +1129,12 @@ public class Player
     /// <summary>
     /// Gets a value indicating whether the player is muted.
     /// </summary>
-    public bool IsMuted => VoiceChatMutes.IsMuted(ReferenceHub);
+    public bool IsMuted => (VoiceChatMutes.GetFlags(ReferenceHub) & (VcMuteFlags.LocalRegular | VcMuteFlags.GlobalRegular)) != 0;
 
     /// <summary>
     /// Gets a value indicating whether the player is muted from the intercom.
     /// </summary>
-    public bool IsIntercomMuted => VoiceChatMutes.IsMuted(ReferenceHub, true);
+    public bool IsIntercomMuted => VoiceChatMutes.GetFlags(ReferenceHub) != VcMuteFlags.None;
 
     /// <summary>
     /// Gets a value indicating whether the player is talking through a radio.
@@ -1105,12 +1149,12 @@ public class Player
     /// <summary>
     /// Gets a value indicating whether the player is a Global Moderator.
     /// </summary>
-    public bool IsGlobalModerator => ReferenceHub.authManager.RemoteAdminGlobalAccess;
+    public bool IsGlobalModerator => ReferenceHub.serverRoles.RaEverywhere;
 
     /// <summary>
     /// Gets a value indicating whether the player is a Northwood Staff member.
     /// </summary>
-    public bool IsNorthwoodStaff => ReferenceHub.authManager.NorthwoodStaff;
+    public bool IsNorthwoodStaff => ReferenceHub.serverRoles.Staff;
 
     /// <summary>
     /// Gets or sets a value indicating whether bypass mode is enabled for the player, allowing them to open doors/gates without keycards.
@@ -1151,9 +1195,17 @@ public class Player
                 return null;
             }
 
-            DisarmedPlayers.DisarmedEntry entry = DisarmedPlayers.Entries.Find(x => x.DisarmedPlayer == NetworkId);
+            uint netId = NetworkId;
+            List<DisarmedPlayers.DisarmedEntry> entries = DisarmedPlayers.Entries;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (entries[i].DisarmedPlayer == netId)
+                {
+                    return Get(entries[i].Disarmer);
+                }
+            }
 
-            return Get(entry.Disarmer);
+            return null;
         }
 
         set
@@ -1230,22 +1282,28 @@ public class Player
 
             return fpcRole.FpcModule.Position;
         }
-        set => ReferenceHub.TryOverridePosition(value);
+        set => ReferenceHub.TryOverridePosition(value, Vector3.zero);
     }
 
     /// <summary>
     /// Gets or sets the player's rotation.
     /// </summary>
+    /// <remarks>
+    /// The Carl Mod client only accepts a horizontal rotation override, so only the yaw of the value is applied.
+    /// </remarks>
     public Quaternion Rotation
     {
-        get => GameObject.transform.rotation;
-        set => ReferenceHub.TryOverrideRotation(value.eulerAngles);
+        get => GameObject!.transform.rotation;
+        set => Rotate(new Vector2(0f, Mathf.DeltaAngle(LookRotation.y, value.eulerAngles.y)));
     }
 
     /// <summary>
     /// Gets or sets the player's look rotation. X is vertical axis while Y is horizontal. Vertical axis is clamped by the base game logic.<br/>
     /// Returns <see cref="Vector2.zero"/> if the player's role is not currently derived from <see cref="IFpcRole"/>.
     /// </summary>
+    /// <remarks>
+    /// The Carl Mod client only accepts a horizontal rotation override, so setting this ignores the vertical axis.
+    /// </remarks>
     public Vector2 LookRotation
     {
         get
@@ -1258,34 +1316,7 @@ public class Player
             FpcMouseLook mouseLook = fpcRole.FpcModule.MouseLook;
             return new Vector2(mouseLook.CurrentVertical, mouseLook.CurrentHorizontal);
         }
-        set => ReferenceHub.TryOverrideRotation(value);
-    }
-
-    /// <summary>
-    /// Gets or sets player's scale. Player's role must be <see cref="IFpcRole"/> for it to take effect.<br/>
-    /// Vertical scale is not linear as the model's origin and scaling is done from player's feet.
-    /// </summary>
-    public Vector3 Scale
-    {
-        get
-        {
-            if (ReferenceHub.roleManager.CurrentRole is not IFpcRole fpcRole)
-            {
-                return Vector3.zero;
-            }
-
-            return fpcRole.FpcModule.Motor.ScaleController.Scale;
-        }
-
-        set
-        {
-            if (ReferenceHub.roleManager.CurrentRole is not IFpcRole fpcRole)
-            {
-                return;
-            }
-
-            fpcRole.FpcModule.Motor.ScaleController.Scale = value;
-        }
+        set => Rotate(new Vector2(0f, Mathf.DeltaAngle(LookRotation.y, value.y)));
     }
 
     /// <summary>
@@ -1298,45 +1329,23 @@ public class Player
     }
 
     /// <summary>
-    /// Gets or sets the current player's emotion.
-    /// </summary>
-    public EmotionPresetType Emotion
-    {
-        get => EmotionSync.GetEmotionPreset(ReferenceHub);
-        set => EmotionSync.ServerSetEmotionPreset(ReferenceHub, value);
-    }
-
-    /// <summary>
     /// Teleports the player by the delta location.
     /// </summary>
     /// <param name="delta">Position to add to the current one.</param>
-    public void Move(Vector3 delta) => ReferenceHub.TryOverridePosition(Position + delta);
+    public void Move(Vector3 delta) => ReferenceHub.TryOverridePosition(Position + delta, Vector3.zero);
 
     /// <summary>
     /// Rotates the player by the parameter.
     /// </summary>
     /// <param name="delta">Rotation to add to the current one. X is vertical and Y is horizontal rotation.</param>
-    public void Rotate(Vector2 delta) => ReferenceHub.TryOverrideRotation(LookRotation + delta);
-
-    /// <summary>
-    /// Forces <see cref="IFpcRole"/> to jump.
-    /// <para>Jumping can be also adjusted via <see cref="HeavyFooted"/> and <see cref="Lightweight"/> status effects.</para>
-    /// </summary>
-    /// <param name="jumpStrength">Strength that the player will jump with.</param>
-    public void Jump(float jumpStrength)
+    /// <remarks>
+    /// The Carl Mod client only accepts a horizontal rotation override, so <c>delta.x</c> is ignored.
+    /// </remarks>
+    public void Rotate(Vector2 delta)
     {
-        if (ReferenceHub.roleManager.CurrentRole is IFpcRole fpcRole)
+        if (RoleBase is IFpcRole fpcRole)
         {
-            fpcRole.FpcModule.Motor.JumpController.ForceJump(jumpStrength);
-        }
-    }
-
-    /// <inheritdoc cref="Jump(float)"/>
-    public void Jump()
-    {
-        if (ReferenceHub.roleManager.CurrentRole is IFpcRole fpcRole)
-        {
-            Jump(fpcRole.FpcModule.JumpSpeed);
+            fpcRole.FpcModule.ServerOverridePosition(fpcRole.FpcModule.Position, new Vector3(0f, delta.y, 0f));
         }
     }
 
@@ -1437,9 +1446,8 @@ public class Player
     /// Adds an item of the specified type to the player's inventory.
     /// </summary>
     /// <param name="item">The type of item.</param>
-    /// <param name="reason">The reason why is this item being added.</param>
     /// <returns>The <see cref="Item"/> added or null if it could not be added.</returns>
-    public Item? AddItem(ItemType item, ItemAddReason reason = ItemAddReason.AdminCommand) => Item.Get(Inventory.ServerAddItem(item, reason));
+    public Item? AddItem(ItemType item) => Item.Get(Inventory.ServerAddItem(item));
 
     /// <summary>
     /// Adds an item by picking it up.
@@ -1447,7 +1455,7 @@ public class Player
     /// <param name="pickup">The <see cref="Pickup"/> to pickup.</param>
     /// <returns>The <see cref="Item"/> added or null if it could not be added.</returns>
     public Item? AddItem(Pickup pickup)
-        => Item.Get(Inventory.ServerAddItem(pickup.Type, ItemAddReason.PickedUp, pickup.Serial, pickup.Base));
+        => Item.Get(Inventory.ServerAddItem(pickup.Type, pickup.Serial, pickup.Base));
 
     /// <summary>
     /// Removes a specific <see cref="Item"/> from the player's inventory.
@@ -1481,10 +1489,10 @@ public class Player
     public void RemoveItem(ItemType item, int maxAmount = 1)
     {
         int count = 0;
-        Item[] items = Items.ToArray();
-        for (int i = 0; i < items.Length; i++)
+        List<ItemBase> items = ListPool<ItemBase>.Shared.Rent(Inventory.UserInventory.Items.Values);
+        for (int i = 0; i < items.Count; i++)
         {
-            ItemBase itemBase = items[i].Base;
+            ItemBase itemBase = items[i];
 
             if (itemBase.ItemTypeId != item)
             {
@@ -1497,6 +1505,8 @@ public class Player
                 break;
             }
         }
+
+        ListPool<ItemBase>.Shared.Return(items);
     }
 
     /// <summary>
@@ -1556,7 +1566,54 @@ public class Player
     /// <param name="amount">The amount to drop.</param>
     /// <param name="checkMinimals">Will prevent dropping small amounts of ammo.</param>
     /// <returns>The dropped ammo.</returns>
-    public IEnumerable<AmmoPickup> DropAmmo(ItemType item, ushort amount, bool checkMinimals = true) => Inventory.ServerDropAmmo(item, amount, checkMinimals).Select(x => AmmoPickup.Get(x));
+    /// <remarks>
+    /// Mirrors the Carl Mod <c>InventoryExtensions.ServerDropAmmo</c>, which does not return the pickups it spawns.
+    /// </remarks>
+    public IEnumerable<AmmoPickup> DropAmmo(ItemType item, ushort amount, bool checkMinimals = true)
+    {
+        List<AmmoPickup> dropped = [];
+        Inventory inv = Inventory;
+        if (!inv.UserInventory.ReserveAmmo.TryGetValue(item, out ushort current) || !InventoryItemLoader.AvailableItems.TryGetValue(item, out ItemBase template) || template.PickupDropModel == null)
+        {
+            return dropped;
+        }
+
+        if (checkMinimals && template.PickupDropModel is InventorySystem.Items.Firearms.Ammo.AmmoPickup modelAmmo)
+        {
+            int minimal = Mathf.FloorToInt(modelAmmo.SavedAmmo / 2f);
+            if (amount < minimal && current > minimal)
+            {
+                amount = (ushort)minimal;
+            }
+        }
+
+        int remaining = Mathf.Min(amount, current);
+        inv.UserInventory.ReserveAmmo[item] = (ushort)(current - remaining);
+        inv.SendAmmoNextFrame = true;
+        while (remaining > 0)
+        {
+            PickupSyncInfo psi = new(item, inv.transform.position, Quaternion.identity, template.Weight, 0);
+            ItemPickupBase pickup = inv.ServerCreatePickup(template, psi, false);
+            InventorySystem.Items.Firearms.Ammo.AmmoPickup? ammoPickup = pickup as InventorySystem.Items.Firearms.Ammo.AmmoPickup;
+            if (ammoPickup != null)
+            {
+                ammoPickup.NetworkSavedAmmo = (ushort)Mathf.Min(ammoPickup.MaxAmmo, remaining);
+                remaining -= ammoPickup.SavedAmmo;
+            }
+            else
+            {
+                remaining--;
+            }
+
+            NetworkServer.Spawn(pickup.gameObject);
+            if (ammoPickup != null)
+            {
+                dropped.Add(AmmoPickup.Get(ammoPickup));
+            }
+        }
+
+        return dropped;
+    }
 
     /// <summary>
     /// Drops all ammo from the player's inventory.
@@ -1566,10 +1623,13 @@ public class Player
     {
         List<AmmoPickup> ammo = ListPool<AmmoPickup>.Shared.Rent();
 
-        foreach (KeyValuePair<ItemType, ushort> pair in Ammo.ToDictionary(e => e.Key, e => e.Value))
+        List<KeyValuePair<ItemType, ushort>> pairs = ListPool<KeyValuePair<ItemType, ushort>>.Shared.Rent(Ammo);
+        foreach (KeyValuePair<ItemType, ushort> pair in pairs)
         {
             ammo.AddRange(DropAmmo(pair.Key, pair.Value));
         }
+
+        ListPool<KeyValuePair<ItemType, ushort>>.Shared.Return(pairs);
 
         return ammo;
     }
@@ -1625,17 +1685,33 @@ public class Player
     /// Gives a candy to the player.
     /// </summary>
     /// <param name="candy">The candy to give the player.</param>
-    /// <param name="reason">The reason to grant the candy bag.</param>
-    public void GiveCandy(CandyKindID candy, ItemAddReason reason)
-        => ReferenceHub.GrantCandy(candy, reason);
+    /// <remarks>Mirrors the Carl Mod remote admin candy command: a bag is added when the player has none.</remarks>
+    public void GiveCandy(CandyKindID candy)
+    {
+        if (Scp330Bag.TryGetBag(ReferenceHub, out Scp330Bag bag))
+        {
+            if (bag.TryAddSpecific(candy))
+            {
+                bag.ServerRefreshBag();
+            }
+
+            return;
+        }
+
+        Inventory.ServerAddItem(ItemType.SCP330);
+        if (Scp330Bag.TryGetBag(ReferenceHub, out bag))
+        {
+            bag.Candies = [candy];
+            bag.ServerRefreshBag();
+        }
+    }
 
     /// <summary>
     /// Gives a random candy to the player.
     /// </summary>
-    /// <param name="reason">The reason to grant the candy bag.</param>
     /// <remarks>This will use <see cref="Scp330Candies.GetRandom"/>, meaning it will use <see cref="ICandy.SpawnChanceWeight"/> to choose the candy.</remarks>
-    public void GiveRandomCandy(ItemAddReason reason = ItemAddReason.AdminCommand)
-        => GiveCandy(Scp330Candies.GetRandom(), reason);
+    public void GiveRandomCandy()
+        => GiveCandy(Scp330Candies.GetRandom());
 
     /// <summary>
     /// Checks if a player has the specified <see cref="PlayerPermissions"/>.
@@ -1694,7 +1770,18 @@ public class Player
     /// </summary>
     /// <param name="otherPlayer">The other player to check.</param>
     /// <returns>The role this player sees for the other player.</returns>
-    public RoleTypeId GetRoleVisibilityFor(Player otherPlayer) => FpcServerPositionDistributor.GetVisibleRole(otherPlayer.ReferenceHub, ReferenceHub);
+    /// <remarks>
+    /// The Carl Mod server only masks roles through <see cref="IObfuscatedRole"/>; it has no distance-based spectator masking.
+    /// </remarks>
+    public RoleTypeId GetRoleVisibilityFor(Player otherPlayer)
+    {
+        if (!IsHost && !otherPlayer.IsHost && RoleBase is IObfuscatedRole obfuscatedRole)
+        {
+            return obfuscatedRole.GetRoleForUser(otherPlayer.ReferenceHub);
+        }
+
+        return Role;
+    }
 
     /// <summary>
     /// Disconnects the player from the server.
@@ -1731,13 +1818,13 @@ public class Player
     /// E.g. <c>"Test param1: {0} param2: {1}"</c>.
     /// </remarks>
     public void SendHint(string text, HintParameter[] parameters, HintEffect[]? effects = null, float duration = 3f) =>
-        ReferenceHub.hints.Show(new TextHint(text, parameters.IsEmpty() ? [new StringHintParameter(string.Empty)] : parameters, effects, duration));
+        ReferenceHub.hints.Show(new TextHint(text, parameters.Length == 0 ? [new StringHintParameter(string.Empty)] : parameters, effects, duration));
 
     /// <summary>
     /// Sends the player a hit marker.
     /// </summary>
     /// <param name="size">The size of hit marker.</param>
-    public void SendHitMarker(float size = 1f) => Hitmarker.SendHitmarkerDirectly(Connection, size);
+    public void SendHitMarker(float size = 1f) => Hitmarker.SendHitmarker(Connection, size);
 
     /// <summary>
     /// Gets the stats module.
@@ -1865,7 +1952,7 @@ public class Player
     /// <param name="armorPenetration">The amount of armor penetration.</param>
     /// <returns>Whether the player was successfully damaged.</returns>
     public bool Damage(float amount, Player attacker, Vector3 force = default, int armorPenetration = 0) =>
-        Damage(new ExplosionDamageHandler(new Footprint(attacker.ReferenceHub), force, amount, armorPenetration, ExplosionType.Grenade));
+        Damage(new ExplosionDamageHandler(new Footprint(attacker.ReferenceHub), force, amount, armorPenetration));
 
     /// <summary>
     /// Damages player.

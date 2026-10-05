@@ -84,7 +84,7 @@ public class LockerChamber
         get => Base.IsOpen;
         set
         {
-            Base.SetDoor(value, null);
+            Base.SetDoor(value, Locker.Base._grantedBeep);
             Locker.Base.RefreshOpenedSyncvar();
         }
     }
@@ -97,12 +97,12 @@ public class LockerChamber
     /// <summary>
     /// Gets whether the chamber contains no items.
     /// </summary>
-    public bool IsEmpty => Base.Content.All(x => x == null);
+    public bool IsEmpty => Base._content.All(x => x == null);
 
     /// <summary>
-    /// Gets or sets the <see cref="DoorPermissionFlags"/> required by the <see cref="Player"/> to open/close the chamber.
+    /// Gets or sets the <see cref="KeycardPermissions"/> required by the <see cref="Player"/> to open/close the chamber.
     /// </summary>
-    public DoorPermissionFlags RequiredPermissions
+    public KeycardPermissions RequiredPermissions
     {
         get => Base.RequiredPermissions;
         set => Base.RequiredPermissions = value;
@@ -116,14 +116,14 @@ public class LockerChamber
     /// </remarks>
     public float TargetCooldown
     {
-        get => Base.TargetCooldown;
-        set => Base.TargetCooldown = value;
+        get => Base._targetCooldown;
+        set => Base._targetCooldown = value;
     }
 
     /// <summary>
     /// Gets whether <see cref="Pickup"/> instances are spawned on the client only when the chamber is first opened.
     /// </summary>
-    public bool SpawnOnFirstOpening => Base.SpawnOnFirstChamberOpening;
+    public bool SpawnOnFirstOpening => Base._spawnOnFirstChamberOpening;
 
     /// <summary>
     /// Gets or sets the array of acceptable <see cref="ItemType">item types</see> that can spawn when filling the chamber with loot.
@@ -143,9 +143,9 @@ public class LockerChamber
     public void Fill()
     {
         Locker.Base.FillChamber(Base);
-        foreach (ItemPickupBase pickupBase in Base.Content)
+        foreach (ItemPickupBase pickupBase in Base._content)
         {
-            if (!pickupBase.TryGetComponent(out Rigidbody rigidbody))
+            if (pickupBase == null || !pickupBase.TryGetComponent(out Rigidbody rigidbody))
             {
                 continue;
             }
@@ -161,11 +161,11 @@ public class LockerChamber
     public HashSet<Pickup> GetAllItems()
     {
         HashSet<Pickup> items = HashSetPool<Pickup>.Shared.Rent();
-        foreach (ItemPickupBase pickupBase in Base.Content.ToArray())
+        foreach (ItemPickupBase pickupBase in Base._content.ToArray())
         {
             if (pickupBase == null)
             {
-                Base.Content.Remove(pickupBase);
+                Base._content.Remove(pickupBase);
                 continue;
             }
 
@@ -180,13 +180,16 @@ public class LockerChamber
     /// </summary>
     public void RemoveAllItems()
     {
-        foreach (ItemPickupBase pickupBase in Base.Content)
+        foreach (ItemPickupBase pickupBase in Base._content)
         {
-            pickupBase.DestroySelf();
+            if (pickupBase != null)
+            {
+                pickupBase.DestroySelf();
+            }
         }
 
-        Base.Content.Clear();
-        Base.ToBeSpawned.Clear();
+        Base._content.Clear();
+        Base._toBeSpawned.Clear();
     }
 
     /// <summary>
@@ -195,8 +198,8 @@ public class LockerChamber
     /// <param name="pickup">The <see cref="Pickup"/> instance to remove.</param>
     public void RemoveItem(Pickup pickup)
     {
-        Base.Content.Remove(pickup.Base);
-        Base.ToBeSpawned.Remove(pickup.Base);
+        Base._content.Remove(pickup.Base);
+        Base._toBeSpawned.Remove(pickup.Base);
         pickup.Destroy();
     }
 
@@ -207,19 +210,19 @@ public class LockerChamber
     /// <returns>The created <see cref="Pickup"/>.</returns>
     public Pickup AddItem(ItemType type)
     {
-        Pickup pickup = Pickup.Create(type, Base.Spawnpoint.position, Base.Spawnpoint.rotation)!;
-        pickup.Transform.SetParent(Base.Spawnpoint);
-        Base.Content.Add(pickup.Base);
+        Pickup pickup = Pickup.Create(type, Base._spawnpoint.position, Base._spawnpoint.rotation)!;
+        pickup.Transform.SetParent(Base._spawnpoint);
+        Base._content.Add(pickup.Base);
         (pickup.Base as IPickupDistributorTrigger)?.OnDistributed();
         if (!IsOpen)
         {
             pickup.IsLocked = true;
-            Base.WasEverOpened = false;
+            Base._wasEverOpened = false;
         }
 
-        if (Base.SpawnOnFirstChamberOpening && !IsOpen)
+        if (Base._spawnOnFirstChamberOpening && !IsOpen)
         {
-            Base.ToBeSpawned.Add(pickup.Base);
+            Base._toBeSpawned.Add(pickup.Base);
         }
         else
         {
@@ -247,10 +250,12 @@ public class LockerChamber
     }
 
     /// <summary>
-    /// Plays the Access Denied sound for this chamber.
+    /// Plays the access denied sound for this chamber.
     /// </summary>
-    /// <param name="permissionUsed">The permissions used to attempt opening the door. Used to animate the door panel.</param>
-    public void PlayDeniedSound(DoorPermissionFlags permissionUsed) => Locker.Base.RpcPlayDenied(Id, permissionUsed);
+    /// <remarks>
+    /// Carl Mod's denied RPC carries no permission flags, so the official permission parameter is absent.
+    /// </remarks>
+    public void PlayDeniedSound() => Locker.Base.RpcPlayDenied(Id);
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

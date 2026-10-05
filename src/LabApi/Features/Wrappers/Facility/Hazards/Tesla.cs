@@ -23,11 +23,6 @@ public class Tesla
     public static IReadOnlyCollection<Tesla> List => Dictionary.Values;
 
     /// <summary>
-    /// Cached tesla gates by <see cref="Room"/> they are in.
-    /// </summary>
-    private static Dictionary<RoomIdentifier, Tesla> TeslaByRoom { get; } = [];
-
-    /// <summary>
     /// Gets the tesla wrapper from the <see cref="Dictionary"/> or creates a new one if it doesn't exist.
     /// </summary>
     /// <param name="teslaGate">The <see cref="TeslaGate"/> of the tesla.</param>
@@ -41,7 +36,20 @@ public class Tesla
     /// <param name="tesla">The tesla to be returned.</param>
     /// <returns>Whether the tesla is in out parameter.</returns>
     public static bool TryGet(Room room, [NotNullWhen(true)] out Tesla? tesla)
-        => TeslaByRoom.TryGetValue(room.Base, out tesla);
+    {
+        // Carl Mod never assigns TeslaGate.Room, so the few gates are scanned by position instead of cached by room.
+        foreach (Tesla candidate in Dictionary.Values)
+        {
+            if (candidate.Base != null && candidate.Room == room)
+            {
+                tesla = candidate;
+                return true;
+            }
+        }
+
+        tesla = null;
+        return false;
+    }
 
     /// <summary>
     /// Initializes the <see cref="Tesla"/> class to subscribe to <see cref="TeslaGate"/> events and handle the tesla caching.
@@ -49,15 +57,27 @@ public class Tesla
     [InitializeWrapper]
     internal static void Initialize()
     {
+        // Carl Mod has no TeslaGate.OnAdded/OnRemoved; the lifecycle patches call OnAdded/OnRemoved.
         Dictionary.Clear();
-        TeslaByRoom.Clear();
-        TeslaGate.OnAdded += (tesla) => _ = new Tesla(tesla);
-        TeslaGate.OnRemoved += (tesla) =>
-        {
-            Dictionary.Remove(tesla);
-            TeslaByRoom.Remove(tesla.Room);
-        };
     }
+
+    /// <summary>
+    /// Called by the lifecycle patch when a tesla gate starts.
+    /// </summary>
+    /// <param name="tesla">The started gate.</param>
+    internal static void OnAdded(TeslaGate tesla)
+    {
+        if (!Dictionary.ContainsKey(tesla))
+        {
+            _ = new Tesla(tesla);
+        }
+    }
+
+    /// <summary>
+    /// Called by the lifecycle patch when a tesla gate is destroyed.
+    /// </summary>
+    /// <param name="tesla">The destroyed gate.</param>
+    internal static void OnRemoved(TeslaGate tesla) => Dictionary.Remove(tesla);
 
     /// <summary>
     /// A private constructor to prevent external instantiation.
@@ -66,7 +86,6 @@ public class Tesla
     private Tesla(TeslaGate tesla)
     {
         Dictionary.Add(tesla, this);
-        TeslaByRoom.Add(tesla.Room, this);
         Base = tesla;
     }
 
@@ -109,14 +128,17 @@ public class Tesla
     /// <summary>
     /// Gets the room the tesla gate is in.
     /// </summary>
-    public Room Room => Room.Get(Base.Room);
+    /// <remarks>
+    /// Carl Mod leaves <see cref="TeslaGate.Room"/> unset, so the room is looked up from the gate position.
+    /// </remarks>
+    public Room? Room => Base.Room != null ? Room.Get(Base.Room) : Room.GetRoomAtPosition(Position);
 
     /// <summary>
     /// Returns if <see cref="Player"/> is in range where tesla gate starts idling.
     /// </summary>
     /// <param name="player">The player to check on.</param>
     /// <returns>Whether the player is in idle range.</returns>
-    public bool IsPlayerInIdleRange(Player player) => Base.IsInIdleRange(player.ReferenceHub);
+    public bool IsPlayerInIdleRange(Player player) => Base.PlayerInIdleRange(player.ReferenceHub);
 
     /// <summary>
     /// Returns if <see cref="Player"/> is in range where tesla gate starts to burst.
@@ -129,7 +151,7 @@ public class Tesla
     /// Returns if any <see cref="Player"/> is in range where tesla gate starts idling.
     /// </summary>
     /// <returns>Whether any player is within the idle range.</returns>
-    public bool IsAnyPlayerInIdleRange() => ReferenceHub.AllHubs.Any(Base.IsInIdleRange);
+    public bool IsAnyPlayerInIdleRange() => ReferenceHub.AllHubs.Any(Base.PlayerInIdleRange);
 
     /// <summary>
     /// Returns if any <see cref="Player"/> is in range where tesla gate starts to burst.

@@ -1,76 +1,43 @@
-﻿using LabApi.Features.Console;
-using Respawning.Config;
-using Respawning.Waves;
-using System;
+using Respawning;
+using Respawning.NamingRules;
+using System.Collections.Generic;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
-/// A class representing <see cref="NtfSpawnWave">primary MTF spawn wave</see>.
+/// A class representing <see cref="NineTailedFoxSpawnHandler">primary MTF spawn wave</see>.
 /// </summary>
+/// <remarks>
+/// The Carl Mod game spawns a fixed composition (one captain, three sergeants, privates), so the official
+/// sergeant and captain percentages are not available.
+/// </remarks>
 public class MtfWave : RespawnWave
 {
-    /// <inheritdoc cref="RespawnWave(TimeBasedWave)"/>
-    internal MtfWave(NtfSpawnWave wave)
-        : base(wave)
+    /// <inheritdoc cref="RespawnWave(SpawnableTeamHandlerBase, SpawnableTeamType)"/>
+    internal MtfWave(NineTailedFoxSpawnHandler wave)
+        : base(wave, SpawnableTeamType.NineTailedFox)
     {
         Base = wave;
     }
 
     /// <summary>
-    /// The base <see cref="NtfSpawnWave"/> object.
+    /// The base <see cref="NineTailedFoxSpawnHandler"/> object.
     /// </summary>
-    public new NtfSpawnWave Base { get; private set; }
-
-    /// <summary>
-    /// Gets or sets the amount of sergeants that can spawn with the wave.
-    /// </summary>
-    [Obsolete("Use SergeantsPercentage instead", true)]
-    public int MaxSergeants
-    {
-        get => 0;
-        set => Logger.Error("Plugin Error. Cannot set MaxSergeants, use SergeantsPercentage instead.");
-    }
-
-    /// <summary>
-    /// Gets the percentage of sergeants that can spawn with the wave.
-    /// </summary>
-    public float SergeantsPercentage
-    {
-        get => Base.SergeantPercent;
-        set => Base.SergeantPercent = value;
-    }
-
-    /// <summary>
-    /// Gets or sets the amount of captains that can spawn with the wave.
-    /// </summary>
-    [Obsolete("Use CaptainsPercentage instead", true)]
-    public int MaxCaptains
-    {
-        get => 0;
-        set => Logger.Error("Plugin Error. Cannot set MaxCaptains, use CaptainsPercentage instead.");
-    }
-
-    /// <summary>
-    /// Gets the percentage of captains that can spawn with the wave.
-    /// </summary>
-    public float CaptainsPercentage
-    {
-        get => Base.CaptainPercent;
-        set => Base.CaptainPercent = value;
-    }
+    public new NineTailedFoxSpawnHandler Base { get; private set; }
 
     /// <inheritdoc/>
-    public override int MaxWaveSize
+    /// <remarks>
+    /// Plays the MTF entrance announcement for the most recent unit name.
+    /// </remarks>
+    public override void PlayAnnouncement(IEnumerable<Player> spawnedPlayers)
     {
-        get => Base.MaxWaveSize;
-        set
+        if (!UnitNamingRule.TryGetNamingRule(SpawnableTeamType.NineTailedFox, out UnitNamingRule rule)
+            || !UnitNameMessageHandler.ReceivedNames.TryGetValue(SpawnableTeamType.NineTailedFox, out List<string> names)
+            || names.Count == 0)
         {
-            float percentageValue = (float)value / ReferenceHub.AllHubs.Count;
-            if (Base.Configuration is PrimaryWaveConfig<NtfSpawnWave> config)
-            {
-                config.SizePercentage = percentageValue;
-            }
+            return;
         }
+
+        rule.PlayEntranceAnnouncement(names[names.Count - 1]);
     }
 }

@@ -15,6 +15,7 @@ namespace LabApi.Features.Wrappers;
 /// </summary>
 /// <remarks>
 /// Contains the item pickup and its associated pocket dimension properties.
+/// Carl Mod's item manager raises no add/remove events, so the wrappers are synchronized with its tracked items on access.
 /// </remarks>
 public class PocketItem
 {
@@ -26,7 +27,14 @@ public class PocketItem
     /// <summary>
     /// A reference to all <see cref="PocketItem"/> instances currently in the game.
     /// </summary>
-    public static IReadOnlyCollection<PocketItem> List => Dictionary.Values;
+    public static IReadOnlyCollection<PocketItem> List
+    {
+        get
+        {
+            Synchronize();
+            return Dictionary.Values;
+        }
+    }
 
     /// <summary>
     /// Tries to get the <see cref="PocketItem"/> associated with the <see cref="Wrappers.Pickup"/>.
@@ -35,7 +43,21 @@ public class PocketItem
     /// <param name="pocketItem">The <see cref="PocketItem"/> associated with <see cref="Wrappers.Pickup"/> or null if it doesn't exists.</param>
     /// <returns>Whether the <see cref="PocketItem"/> was successfully retrieved.</returns>
     public static bool TryGet(Pickup pickup, [NotNullWhen(true)] out PocketItem? pocketItem)
-        => Dictionary.TryGetValue(pickup.Base, out pocketItem);
+    {
+        if (!Scp106PocketItemManager.TrackedItems.TryGetValue(pickup.Base, out Scp106PocketItemManager.PocketItem baseItem))
+        {
+            Dictionary.Remove(pickup.Base);
+            pocketItem = null;
+            return false;
+        }
+
+        if (!Dictionary.TryGetValue(pickup.Base, out pocketItem) || pocketItem.Base != baseItem)
+        {
+            pocketItem = new PocketItem(pickup.Base, baseItem);
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Gets the <see cref="PocketItem"/> associated with the <see cref="Wrappers.Pickup"/>.
@@ -54,24 +76,55 @@ public class PocketItem
     /// </remarks>
     public static PocketItem GetOrAdd(Pickup pickup)
     {
-        if (Dictionary.TryGetValue(pickup.Base, out PocketItem? pocketItem))
+        if (TryGet(pickup, out PocketItem? pocketItem))
         {
             return pocketItem;
         }
 
         pickup.Position = PocketDimension.Instance!.Position + Vector3.up;
-        Scp106PocketItemManager.AddItem(pickup.Base);
+
+        // Carl Mod has no AddItem; its pickup-added handler starts tracking pickups inside the pocket dimension.
+        Scp106PocketItemManager.OnAdded(pickup.Base);
         return Get(pickup)!;
     }
 
     /// <summary>
-    /// Initializes the PocketItem wrapper by subscribing to the PocketDimensionTeleport events.
+    /// Initializes the PocketItem wrapper cache.
     /// </summary>
     [InitializeWrapper]
     internal static void Initialize()
     {
-        Scp106PocketItemManager.OnPocketItemAdded += (itemPickupBase, pocketItem) => _ = new PocketItem(itemPickupBase, pocketItem);
-        Scp106PocketItemManager.OnPocketItemRemoved += (itemPickupBase) => Dictionary.Remove(itemPickupBase);
+        Dictionary.Clear();
+    }
+
+    /// <summary>
+    /// Synchronizes the wrapper cache with the items tracked by <see cref="Scp106PocketItemManager"/>.
+    /// </summary>
+    private static void Synchronize()
+    {
+        List<ItemPickupBase> stale = NorthwoodLib.Pools.ListPool<ItemPickupBase>.Shared.Rent();
+        foreach (KeyValuePair<ItemPickupBase, PocketItem> pair in Dictionary)
+        {
+            if (!Scp106PocketItemManager.TrackedItems.TryGetValue(pair.Key, out Scp106PocketItemManager.PocketItem baseItem) || baseItem != pair.Value.Base)
+            {
+                stale.Add(pair.Key);
+            }
+        }
+
+        foreach (ItemPickupBase key in stale)
+        {
+            Dictionary.Remove(key);
+        }
+
+        NorthwoodLib.Pools.ListPool<ItemPickupBase>.Shared.Return(stale);
+
+        foreach (KeyValuePair<ItemPickupBase, Scp106PocketItemManager.PocketItem> pair in Scp106PocketItemManager.TrackedItems)
+        {
+            if (pair.Key != null && !Dictionary.ContainsKey(pair.Key))
+            {
+                _ = new PocketItem(pair.Key, pair.Value);
+            }
+        }
     }
 
     /// <summary>
@@ -81,7 +134,7 @@ public class PocketItem
     /// <param name="pocketItem">The base <see cref="Scp106PocketItemManager.PocketItem"/> object.</param>
     internal PocketItem(ItemPickupBase pickup, Scp106PocketItemManager.PocketItem pocketItem)
     {
-        Dictionary.Add(pickup, this);
+        Dictionary[pickup] = this;
         Pickup = Pickup.Get(pickup);
         Base = pocketItem;
     }

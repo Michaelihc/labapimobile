@@ -96,26 +96,6 @@ public static partial class PlayerEvents
     public static event LabEventHandler<PlayerUnmutedEventArgs>? Unmuted;
 
     /// <summary>
-    /// Gets called when the player is reporting a cheater.
-    /// </summary>
-    public static event LabEventHandler<PlayerReportingCheaterEventArgs>? ReportingCheater;
-
-    /// <summary>
-    /// Gets called when the player has reported a cheater.
-    /// </summary>
-    public static event LabEventHandler<PlayerReportedCheaterEventArgs>? ReportedCheater;
-
-    /// <summary>
-    /// Gets called when the player is reporting another player.
-    /// </summary>
-    public static event LabEventHandler<PlayerReportingPlayerEventArgs>? ReportingPlayer;
-
-    /// <summary>
-    /// Gets called when the player has reported another player.
-    /// </summary>
-    public static event LabEventHandler<PlayerReportedPlayerEventArgs>? ReportedPlayer;
-
-    /// <summary>
     /// Gets called when the player is attempting to toggle noclip (pressed alt).
     /// </summary>
     public static event LabEventHandler<PlayerTogglingNoclipEventArgs>? TogglingNoclip;
@@ -383,11 +363,6 @@ public static partial class PlayerEvents
     public static event LabEventHandler<PlayerSearchingPickupEventArgs>? SearchingPickup;
 
     /// <summary>
-    /// Gets called when the player has interacted with an invisible interactable toy.
-    /// </summary>
-    public static event LabEventHandler<PlayerInteractedToyEventArgs>? InteractedToy;
-
-    /// <summary>
     /// Gets called when the player has joined.
     /// </summary>
     public static event LabEventHandler<PlayerSearchedPickupEventArgs>? SearchedPickup;
@@ -416,31 +391,6 @@ public static partial class PlayerEvents
     /// Gets called when the player has thrown a projectile.
     /// </summary>
     public static event LabEventHandler<PlayerThrewProjectileEventArgs>? ThrewProjectile;
-
-    /// <summary>
-    /// Gets called when the player wants to inspect any keycard item.
-    /// </summary>
-    public static event LabEventHandler<PlayerInspectingKeycardEventArgs>? InspectingKeycard;
-
-    /// <summary>
-    /// Gets called when the player inspected keycard item.
-    /// </summary>
-    public static event LabEventHandler<PlayerInspectedKeycardEventArgs>? InspectedKeycard;
-
-    /// <summary>
-    /// Gets called when the player requests to spin the revolver.
-    /// </summary>
-    public static event LabEventHandler<PlayerSpinningRevolverEventArgs>? SpinningRevolver;
-
-    /// <summary>
-    /// Gets called when the player spinned the revolver.
-    /// </summary>
-    public static event LabEventHandler<PlayerSpinnedRevolverEventArgs>? SpinnedRevolver;
-
-    /// <summary>
-    /// Gets called when the player toggled disruptor firing mode.
-    /// </summary>
-    public static event LabEventHandler<PlayerToggledDisruptorFiringModeEventArgs>? ToggledDisruptorFiringMode;
 
     /// <summary>
     /// Gets called when the player wants to inspect any item.
@@ -627,26 +577,6 @@ public static partial class PlayerEvents
     /// </summary>
     public static event LabEventHandler<PlayerMovementStateChangedEventArgs>? MovementStateChanged;
 
-    /// <summary>
-    /// Gets called when processing a player's interaction with the Scp1509 item.
-    /// </summary>
-    public static event LabEventHandler<PlayerProcessingScp1509MessageEventArgs>? ProcessingScp1509Message;
-
-    /// <summary>
-    /// Gets called after a player's interaction with the Scp1509 item is processed.
-    /// </summary>
-    public static event LabEventHandler<PlayerProcessedScp1509MessageEventArgs>? ProcessedScp1509Message;
-
-    /// <summary>
-    /// Gets called when a player is about to be resurrected with the Scp1509 item.
-    /// </summary>
-    public static event LabEventHandler<PlayerScp1509ResurrectingEventArgs>? Scp1509Resurrecting;
-
-    /// <summary>
-    /// Gets called after a player has been resurrected with the Scp1509 item.
-    /// </summary>
-    public static event LabEventHandler<PlayerScp1509ResurrectedEventArgs>? Scp1509Resurrected;
-
     #endregion
 
     #region World Interaction
@@ -720,21 +650,6 @@ public static partial class PlayerEvents
     /// Gets called when the player has flipped a coin.
     /// </summary>
     public static event LabEventHandler<PlayerFlippedCoinEventArgs>? FlippedCoin;
-
-    /// <summary>
-    /// Gets called when the player is searching an interactable toy.
-    /// </summary>
-    public static event LabEventHandler<PlayerSearchingToyEventArgs>? SearchingToy;
-
-    /// <summary>
-    /// Gets called when the player has searched an interactable toy.
-    /// </summary>
-    public static event LabEventHandler<PlayerSearchedToyEventArgs>? SearchedToy;
-
-    /// <summary>
-    /// Gets called when the player aborts their interactable toy search.
-    /// </summary>
-    public static event LabEventHandler<PlayerSearchToyAbortedEventArgs>? SearchToyAborted;
 
     /// <summary>
     /// Gets called when the player is sending a voice message.
@@ -931,11 +846,6 @@ public static partial class PlayerEvents
     /// </summary>
     public static event LabEventHandler<PlayerSentHitmarkerEventArgs>? SentHitmarker;
 
-    /// <summary>
-    /// Gets called when a hitmarker permission is checked for a player.
-    /// </summary>
-    public static event LabEventHandler<PlayerCheckedHitmarkerEventArgs>? CheckedHitmarker;
-
     #endregion
 
     #region Spectating
@@ -978,15 +888,6 @@ public static partial class PlayerEvents
     /// Gets called when a player has validated the visibility of a target player.
     /// </summary>
     public static event LabEventHandler<PlayerValidatedVisibilityEventArgs>? ValidatedVisibility;
-
-    #endregion
-
-    #region Scp1344
-
-    /// <summary>
-    /// Gets called when player detects enemy player using SCP-1344.
-    /// </summary>
-    public static event LabEventHandler<PlayerDetectedByScp1344EventArgs>? DetectedByScp1344;
 
     #endregion
 }

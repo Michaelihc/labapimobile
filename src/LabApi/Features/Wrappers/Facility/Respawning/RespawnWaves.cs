@@ -1,12 +1,15 @@
-﻿using Generators;
+using Generators;
 using Respawning;
-using Respawning.Waves;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
 /// A static class holding references to the wrapping <see cref="RespawnWave"/>s.
 /// </summary>
+/// <remarks>
+/// The Carl Mod game code uses the SL 13.x <see cref="RespawnManager"/>: one MTF and one Chaos Insurgency wave
+/// (<see cref="SpawnableTeamType"/>) that share a single respawn timer. Mini waves do not exist.
+/// </remarks>
 public static class RespawnWaves
 {
     /// <summary>
@@ -20,30 +23,28 @@ public static class RespawnWaves
     public static ChaosWave? PrimaryChaosWave { get; private set; }
 
     /// <summary>
-    /// Gets the mini MTF respawn wave.
-    /// </summary>
-    public static MiniMtfWave? MiniMtfWave { get; private set; }
-
-    /// <summary>
-    /// Gets the mini Chaos Insurgency respawn wave.
-    /// </summary>
-    public static MiniChaosWave? MiniChaosWave { get; private set; }
-
-    /// <summary>
-    /// Gets the respawn wave wrapper from the static references or creates a new one if it doesn't exist and the provided <see cref="SpawnableWaveBase"/> was not <see langword="null"/> or not valid subclass.
+    /// Gets the respawn wave wrapper from the static references or creates a new one if it doesn't exist and the provided <see cref="SpawnableTeamHandlerBase"/> was not <see langword="null"/> or not valid subclass.
     /// </summary>
     /// <param name="baseWave">The <see cref="RespawnWave.Base"/> of the respawn wave.</param>
     /// <returns>The requested respawn wave or <see langword="null"/>.</returns>
-    public static RespawnWave? Get(SpawnableWaveBase? baseWave)
+    public static RespawnWave? Get(SpawnableTeamHandlerBase? baseWave)
     {
         return baseWave switch
         {
-            NtfSpawnWave => PrimaryMtfWave ??= new MtfWave((NtfSpawnWave)baseWave),
-            ChaosSpawnWave => PrimaryChaosWave ??= new ChaosWave((ChaosSpawnWave)baseWave),
-            NtfMiniWave => MiniMtfWave ??= new MiniMtfWave((NtfMiniWave)baseWave),
-            ChaosMiniWave => MiniChaosWave ??= new MiniChaosWave((ChaosMiniWave)baseWave),
+            NineTailedFoxSpawnHandler ntf => PrimaryMtfWave ??= new MtfWave(ntf),
+            ChaosInsurgencySpawnHandler ci => PrimaryChaosWave ??= new ChaosWave(ci),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Gets the respawn wave wrapper for the provided <see cref="SpawnableTeamType"/>.
+    /// </summary>
+    /// <param name="team">The spawnable team of the respawn wave.</param>
+    /// <returns>The requested respawn wave or <see langword="null"/> for <see cref="SpawnableTeamType.None"/>.</returns>
+    public static RespawnWave? Get(SpawnableTeamType team)
+    {
+        return RespawnManager.SpawnableTeams.TryGetValue(team, out SpawnableTeamHandlerBase handler) ? Get(handler) : null;
     }
 
     /// <summary>
@@ -52,9 +53,9 @@ public static class RespawnWaves
     [InitializeWrapper]
     internal static void Initialize()
     {
-        foreach (SpawnableWaveBase wave in WaveManager.Waves)
+        foreach (SpawnableTeamHandlerBase handler in RespawnManager.SpawnableTeams.Values)
         {
-            Get(wave);
+            Get(handler);
         }
     }
 }

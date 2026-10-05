@@ -1,14 +1,16 @@
-﻿using InventorySystem.Items.Firearms;
-using InventorySystem.Items.Firearms.Modules;
+using InventorySystem;
+using InventorySystem.Items.Firearms;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using static InventorySystem.Items.Firearms.Modules.DisruptorActionModule;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
 /// The wrapper representing <see cref="ParticleDisruptor"/>.
 /// </summary>
+/// <remarks>
+/// The Carl Mod disruptor has no firing-mode selector and no separate chamber: every remaining shot is <see cref="FirearmItem.StoredAmmo"/>.
+/// </remarks>
 public class ParticleDisruptorItem : FirearmItem
 {
     /// <summary>
@@ -37,8 +39,6 @@ public class ParticleDisruptorItem : FirearmItem
         return Dictionary.TryGetValue(particleDisruptor, out ParticleDisruptorItem item) ? item : (ParticleDisruptorItem)CreateItemWrapper(particleDisruptor);
     }
 
-    private DisruptorModeSelector _selectorModule = null!;
-
     /// <summary>
     /// An internal constructor to prevent external instantiation.
     /// </summary>
@@ -59,87 +59,23 @@ public class ParticleDisruptorItem : FirearmItem
     /// </summary>
     public new ParticleDisruptor Base { get; }
 
-    /// <summary>
-    /// Gets the current firing state.
-    /// </summary>
-    public FiringState FiringState
-    {
-        get
-        {
-            if (ActionModule is DisruptorActionModule actionModule)
-            {
-                return actionModule.CurFiringState;
-            }
-
-            return FiringState.None;
-        }
-    }
-
-    /// <summary>
-    /// Gets whether the disruptor has single-shot mode selected.
-    /// </summary>
-    public bool SingleShotMode
-    {
-        get
-        {
-            if (_selectorModule is DisruptorModeSelector selectorModule)
-            {
-                return selectorModule.SingleShotSelected;
-            }
-
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Gets the amount of chambered ammo in the chamber.
-    /// </summary>
-    public override int ChamberedAmmo
-    {
-        get
-        {
-            if (ActionModule is DisruptorActionModule actionModule)
-            {
-                return actionModule.IsLoaded ? 1 : 0;
-            }
-
-            return 0;
-        }
-    }
-
-    /// <summary>
-    /// Gets the maximum chambered ammo.
-    /// </summary>
-    public override int ChamberMax
-    {
-        get => 1;
-    }
-
-    /// <summary>
-    /// Gets whether the firearm is cocked and can fire.
-    /// </summary>
-    public override bool Cocked
-    {
-        get
-        {
-            if (ActionModule is DisruptorActionModule actionModule)
-            {
-                return actionModule.IsLoaded;
-            }
-
-            return false;
-        }
-    }
-
     /// <inheritdoc/>
     public override bool OpenBolt => true;
 
     /// <summary>
-    /// Destroys this disruptor and plays the destroy animation on the client.
+    /// Removes this disruptor from its owner's inventory.
     /// </summary>
+    /// <remarks>
+    /// The fork has no server-driven destroy animation; the item is removed immediately.
+    /// </remarks>
     public void Destroy()
     {
-        Base.ServerDestroyItem();
+        if (Base.Owner == null)
+        {
+            return;
+        }
+
+        Base.OwnerInventory.ServerRemoveItem(Base.ItemSerial, null);
     }
 
     /// <summary>
@@ -149,20 +85,5 @@ public class ParticleDisruptorItem : FirearmItem
     {
         base.OnRemove();
         Dictionary.Remove(Base);
-    }
-
-    /// <inheritdoc/>
-    protected override void CacheModules()
-    {
-        base.CacheModules();
-
-        foreach (ModuleBase module in Modules)
-        {
-            if (module is DisruptorModeSelector selectorModule)
-            {
-                _selectorModule = selectorModule;
-                break;
-            }
-        }
     }
 }

@@ -1,5 +1,4 @@
-﻿using InventorySystem.Items.Jailbird;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using BaseJailbirdItem = InventorySystem.Items.Jailbird.JailbirdItem;
 
@@ -57,11 +56,6 @@ public class JailbirdItem : Item
     public new BaseJailbirdItem Base { get; }
 
     /// <summary>
-    /// Gets the current <see cref="JailbirdWearState"/>.
-    /// </summary>
-    public JailbirdWearState WearState => JailbirdDeteriorationTracker.ReceivedStates.GetValueOrDefault(Serial, JailbirdWearState.Healthy);
-
-    /// <summary>
     /// Gets the number of charges performed.
     /// </summary>
     public int TotalChargesPerformed => Base.TotalChargesPerformed;
@@ -74,7 +68,16 @@ public class JailbirdItem : Item
     /// <summary>
     /// Resets charges and damage dealt.
     /// </summary>
-    public void Reset() => Base.ServerReset();
+    /// <remarks>
+    /// The Carl Mod jailbird has no wear states; this clears the server-side usage counters and the broken flag.
+    /// The fork has no message that clears a client's "almost depleted"/"broken" alert once it was sent.
+    /// </remarks>
+    public void Reset()
+    {
+        Base.TotalChargesPerformed = 0;
+        Base._hitreg.TotalMeleeDamageDealt = 0f;
+        Base._broken = false;
+    }
 
     /// <summary>
     /// An internal method to remove itself from the cache when the base object is destroyed.

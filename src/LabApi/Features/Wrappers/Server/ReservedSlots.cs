@@ -7,6 +7,9 @@ namespace LabApi.Features.Wrappers;
 /// <summary>
 /// A static wrapper representing the <see cref="ReservedSlots">reserved slots</see> of the server.
 /// </summary>
+/// <remarks>
+/// The Carl Mod server loads the reserved slot list but does not consult it when players connect.
+/// </remarks>
 public static class ReservedSlots
 {
     /// <summary>
@@ -29,7 +32,7 @@ public static class ReservedSlots
     /// </summary>
     /// <param name="userId">The user id of the player.</param>
     /// <returns>Whether player has a reserved slot.</returns>
-    public static bool HasReservedSlot(string userId) => ReservedSlot.HasReservedSlot(userId);
+    public static bool HasReservedSlot(string userId) => ReservedSlot.HasReservedSlot(userId, out _);
 
     /// <summary>
     /// Reloads reserved slots from the file.

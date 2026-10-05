@@ -29,7 +29,19 @@ public static class RoleExtensions
     /// <param name="role">The <see cref="PlayerRoleBase"/> found.</param>
     /// <typeparam name="T">The <see cref="PlayerRoleBase"/>.</typeparam>
     /// <returns>The role base found, else null.</returns>
-    public static bool TryGetRoleBase<T>(this RoleTypeId roleTypeId, [NotNullWhen(true)] out T? role) => PlayerRoleLoader.TryGetRoleTemplate(roleTypeId, out role);
+    public static bool TryGetRoleBase<T>(this RoleTypeId roleTypeId, [NotNullWhen(true)] out T? role)
+    {
+        // The fork's PlayerRoleLoader.TryGetRoleTemplate<T> is constrained to PlayerRoleBase; official LabAPI
+        // also accepts interfaces such as IFpcRole, so resolve the template here.
+        if (PlayerRoleLoader.AllRoles.TryGetValue(roleTypeId, out PlayerRoleBase template) && template is T result)
+        {
+            role = result;
+            return true;
+        }
+
+        role = default;
+        return false;
+    }
 
     /// <summary>
     /// Gets the human-readable version of a <see cref="RoleTypeId"/>'s name.

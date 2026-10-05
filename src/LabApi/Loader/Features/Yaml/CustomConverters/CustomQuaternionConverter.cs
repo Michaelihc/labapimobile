@@ -72,4 +72,12 @@ public class CustomQuaternionConverter : IYamlTypeConverter
     {
         return type == typeof(Quaternion);
     }
+
+    /// <inheritdoc />
+    /// <remarks>YamlDotNet 16+ interface member; forwards to <see cref="ReadYaml(IParser, Type)"/>.</remarks>
+    public object? ReadYaml(IParser parser, Type type, ObjectDeserializer rootDeserializer) => ReadYaml(parser, type);
+
+    /// <inheritdoc />
+    /// <remarks>YamlDotNet 16+ interface member; forwards to <see cref="WriteYaml(IEmitter, object?, Type)"/>.</remarks>
+    public void WriteYaml(IEmitter emitter, object? value, Type type, ObjectSerializer serializer) => WriteYaml(emitter, value, type);
 }

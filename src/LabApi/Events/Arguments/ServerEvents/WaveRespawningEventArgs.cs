@@ -1,7 +1,7 @@
 using LabApi.Events.Arguments.Interfaces;
 using LabApi.Features.Wrappers;
 using PlayerRoles;
-using Respawning.Waves;
+using Respawning;
 using System;
 using System.Collections.Generic;
 using UnityEngine.Pool;
@@ -18,7 +18,7 @@ public class WaveRespawningEventArgs : EventArgs, ICancellableEvent
     /// </summary>
     /// <param name="wave">The wave that is respawning.</param>
     /// <param name="roles">The players that are respawning and roles they will spawn as.</param>
-    public WaveRespawningEventArgs(SpawnableWaveBase wave, Dictionary<ReferenceHub, RoleTypeId> roles)
+    public WaveRespawningEventArgs(SpawnableTeamHandlerBase wave, Dictionary<ReferenceHub, RoleTypeId> roles)
     {
         IsAllowed = true;
         Wave = RespawnWaves.Get(wave)!;
@@ -26,7 +26,11 @@ public class WaveRespawningEventArgs : EventArgs, ICancellableEvent
 
         foreach (KeyValuePair<ReferenceHub, RoleTypeId> kvp in roles)
         {
-            Roles.Add(Player.Get(kvp.Key), kvp.Value);
+            Player? player = Player.Get(kvp.Key);
+            if (player != null)
+            {
+                Roles[player] = kvp.Value;
+            }
         }
     }
 

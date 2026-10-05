@@ -55,13 +55,12 @@ public class Scp2176Projectile : TimedGrenadeProjectile
     public new InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile Base { get; }
 
     /// <summary>
-    /// Gets or sets the lockdown duration in seconds that is applied to the room once this SCP shatters.
+    /// Gets the lockdown duration in seconds that is applied to the room once this SCP shatters.
     /// </summary>
-    public float LockdownDuration
-    {
-        get => Base.LockdownDuration;
-        set => Base.LockdownDuration = value;
-    }
+    /// <remarks>
+    /// The Carl Mod build compiles this duration as a constant, so it cannot be changed.
+    /// </remarks>
+    public float LockdownDuration => InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile.LockdownDuration;
 
     /// <summary>
     /// Plays the shattering sound without shattering the SCP itself. Very spooky indeed.

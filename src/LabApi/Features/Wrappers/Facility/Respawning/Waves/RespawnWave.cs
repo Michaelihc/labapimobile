@@ -1,157 +1,170 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using LabApi.Events.Patches.Rounds;
 using PlayerRoles;
 using Respawning;
-using Respawning.Config;
-using Respawning.Waves;
-using Respawning.Waves.Generic;
+using System;
+using System.Collections.Generic;
 
 namespace LabApi.Features.Wrappers;
 
 /// <summary>
-/// A class representing <see cref="TimeBasedWave"/>. Can be both <see cref="RespawnWave">primary wave</see> and <see cref="MiniRespawnWave">mini wave</see>.
+/// A class representing a <see cref="SpawnableTeamHandlerBase">respawn wave</see> of the SL 13.x respawn system.
 /// </summary>
+/// <remarks>
+/// Both waves share the single <see cref="RespawnManager"/> timer, so the timer members of one wave affect the other.
+/// </remarks>
 public abstract class RespawnWave
 {
     /// <summary>
     /// Internal constructor preventing external instantiation.
     /// </summary>
     /// <param name="wave">The base game object.</param>
-    internal RespawnWave(TimeBasedWave wave)
+    /// <param name="team">The spawnable team of the wave.</param>
+    internal RespawnWave(SpawnableTeamHandlerBase wave, SpawnableTeamType team)
     {
         Base = wave;
+        TeamType = team;
     }
 
     /// <summary>
-    /// The base <see cref="TimeBasedWave"/> object.
+    /// The base <see cref="SpawnableTeamHandlerBase"/> object.
     /// </summary>
-    public TimeBasedWave Base { get; private set; }
+    public SpawnableTeamHandlerBase Base { get; private set; }
 
     /// <summary>
     /// Gets the faction this respawn wave belong to.
     /// </summary>
-    public Faction Faction => Base.TargetFaction;
+    public Faction Faction => TeamType == SpawnableTeamType.ChaosInsurgency ? Faction.FoundationEnemy : Faction.FoundationStaff;
 
     /// <summary>
-    /// Gets or sets the second that is added to the next respawn timer after the wave has respawned.
+    /// Gets or sets the maximum amount of <see cref="Player"/>s that are going to spawn with the wave.
     /// </summary>
-    public float AdditionalSecondsPerSpawn
+    /// <remarks>
+    /// The Carl Mod game uses an absolute player count (<c>maximum_MTF_respawn_amount</c> / <c>maximum_CI_respawn_amount</c>).
+    /// A value set here lasts until the server config is reloaded.
+    /// </remarks>
+    public int MaxWaveSize
     {
-        get => Base.AdditionalSecondsPerSpawn;
-        set => Base.AdditionalSecondsPerSpawn = value;
+        get => Base.MaxWaveSize;
+        set
+        {
+            if (Base is ConfigBasedTeamSpawnHandler handler)
+            {
+                handler._maxWaveSize = value;
+            }
+        }
     }
-
-    /// <summary>
-    /// Gets or sets the amount of <see cref="Player"/>s that are going to spawn with the wave.<br/>
-    /// Amount is based on the amount of all <see cref="Player"/>s including dummies.
-    /// </summary>
-    public abstract int MaxWaveSize { get; set; }
 
     /// <summary>
     /// Gets the time the spawn animations takes in seconds.
     /// </summary>
-    public float AnimationTime
+    /// <remarks>
+    /// The Carl Mod respawn manager spawns the wave in the same frame its team is selected, so this is the length of
+    /// the arrival effects rather than a delay before the spawn.
+    /// </remarks>
+    public float AnimationTime => Base.EffectTime;
+
+    /// <summary>
+    /// Gets or sets the respawn token share of this wave's <see cref="Faction"/> (0-100).
+    /// </summary>
+    /// <remarks>
+    /// The SL 13.x respawn tokens are a zero-sum share between both waves that the game raises for kills, escapes and
+    /// SCP damage; the wave with the larger share is selected for the next respawn. Setting the value rebalances the
+    /// other wave's share.
+    /// </remarks>
+    public float Influence
     {
         get
         {
-            if (Base is IAnimatedWave wave)
+            foreach (RespawnTokensManager.TokenCounter counter in RespawnTokensManager.Counters)
             {
-                return wave.AnimationDuration;
+                if (counter.Team == TeamType)
+                {
+                    return counter.Amount;
+                }
             }
 
             return 0f;
         }
-    }
-
-    /// <summary>
-    /// Gets or sets the amount of respawn tokens this spawn wave has.
-    /// </summary>
-    public int RespawnTokens
-    {
-        get
-        {
-            if (Base is ILimitedWave wave)
-            {
-                return wave.RespawnTokens;
-            }
-
-            return 0;
-        }
 
         set
         {
-            if (Base is not ILimitedWave wave)
+            float total = RespawnTokensManager.TotalAssigned;
+            if (total <= 0f)
             {
                 return;
             }
 
-            wave.RespawnTokens = value;
-            WaveUpdateMessage.ServerSendUpdate(Base, UpdateMessageFlags.Tokens);
+            RespawnTokensManager.ForceTeamDominance(TeamType, value / total);
         }
     }
 
     /// <summary>
-    /// Gets or sets the amount of influence this wave's <see cref="Faction"/> has.
-    /// </summary>
-    public float Influence
-    {
-        get => FactionInfluenceManager.Get(Faction);
-        set => FactionInfluenceManager.Set(Faction, value);
-    }
-
-    /// <summary>
-    /// Gets or sets the time in seconds it takes for this wave to spawn.
-    /// </summary>
-    public float TimeLeft
-    {
-        get => Base.Timer.TimeLeft;
-        set => Base.Timer.SetTime(Base.Timer.SpawnIntervalSeconds - value);
-    }
-
-    /// <summary>
-    /// Gets or sets the time this wave's timer is paused.
+    /// Gets or sets the time in seconds until the next respawn wave is selected.
     /// </summary>
     /// <remarks>
-    /// Currently the wave timer pauses only at about 10% left.
+    /// Shared by both waves.
     /// </remarks>
-    public float PausedTime
+    public float TimeLeft
     {
-        get => Base.Timer.PauseTimeLeft;
-        set => Base.Timer.Pause(value);
+        get
+        {
+            RespawnManager manager = RespawnManager.Singleton;
+            return manager == null ? 0f : Math.Max(0f, manager._timeForNextSequence - (float)manager._stopwatch.Elapsed.TotalSeconds);
+        }
+
+        set
+        {
+            RespawnManager manager = RespawnManager.Singleton;
+            if (manager == null)
+            {
+                return;
+            }
+
+            manager._timeForNextSequence = value;
+            manager._stopwatch.Restart();
+        }
     }
 
     /// <summary>
-    /// Gets or sets whether this wave's timer is frozen.
+    /// Gets the time that has passed since last wave respawn.
     /// </summary>
-    public bool IsForcefullyPaused
+    /// <remarks>
+    /// Shared by both waves.
+    /// </remarks>
+    public float TimePassed
     {
-        get => Base.Timer.IsForcefullyPaused;
-        set => Base.Timer.IsForcefullyPaused = value;
+        get
+        {
+            RespawnManager manager = RespawnManager.Singleton;
+            return manager == null ? 0f : (float)manager._stopwatch.Elapsed.TotalSeconds;
+        }
     }
 
     /// <summary>
-    /// Gets or sets the time that has passed since last wave respawn.
+    /// Gets the spawnable team of this wave.
     /// </summary>
-    public float TimePassed => Base.Timer.TimePassed;
-
-    /// <summary>
-    /// Attempts to get milestone for next <see cref="RespawnTokens"/>.
-    /// Returns <see langword="false"/> if this <see cref="Faction"/> has maximum influence possible.
-    /// </summary>
-    /// <param name="influenceThreshold">Out param containing next target influence.</param>
-    /// <returns>Whether there is next available milestone.</returns>
-    public bool TryGetCurrentMilestone(out int influenceThreshold) => RespawnTokensManager.TryGetNextThreshold(Faction, Influence, out influenceThreshold);
+    internal SpawnableTeamType TeamType { get; }
 
     /// <summary>
     /// Initiates the respawn with animation.
     /// </summary>
-    public virtual void InitiateRespawn() => WaveManager.InitiateRespawn(Base);
+    /// <remarks>
+    /// Raises the wave team selection events, plays the arrival effects and spawns the wave, like the natural
+    /// Carl Mod team selection.
+    /// </remarks>
+    public virtual void InitiateRespawn() => RespawnPatches.InitiateRespawn(TeamType);
 
     /// <summary>
     /// Instantly respawns this wave.
     /// </summary>
-    public void InstantRespawn() => WaveManager.Spawn(Base);
+    public void InstantRespawn()
+    {
+        RespawnManager manager = RespawnManager.Singleton;
+        if (manager != null)
+        {
+            manager.ForceSpawnTeam(TeamType);
+        }
+    }
 
     /// <summary>
     /// Plays the respawn announcement.
@@ -166,12 +179,11 @@ public abstract class RespawnWave
     /// Plays the respawn announcement.
     /// </summary>
     /// <param name="spawnedPlayers">The players that have spawned to take into account for the announcement.</param>
-    public void PlayAnnouncement(IEnumerable<Player> spawnedPlayers)
+    /// <remarks>
+    /// Only the MTF wave has a CASSIE announcement in the Carl Mod game; it counts the living SCPs itself.
+    /// </remarks>
+    public virtual void PlayAnnouncement(IEnumerable<Player> spawnedPlayers)
     {
-        if (Base is IAnnouncedWave wave)
-        {
-            wave.Announcement.PlayAnnouncement(spawnedPlayers.Select(p => p.ReferenceHub).ToList(), wave);
-        }
     }
 
     /// <summary>
@@ -179,11 +191,6 @@ public abstract class RespawnWave
     /// </summary>
     public void PlayRespawnEffect()
     {
-        if (Base is not IAnimatedWave)
-        {
-            return;
-        }
-
-        WaveUpdateMessage.ServerSendUpdate(Base, UpdateMessageFlags.Trigger);
+        RespawnEffectsController.ExecuteAllEffects(RespawnEffectsController.EffectType.Selection, TeamType);
     }
 }
