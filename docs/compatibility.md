@@ -546,10 +546,10 @@ the mobile options are in [src/ProjectMER/README.md](../src/ProjectMER/README.md
 | --- | --- | --- |
 | `primitives` | adapted | Static toys. `PrimitiveFlags` are encoded in the sign of the `Scale` SyncVar and the spawn transform, exact for every flag set and primitive type (one-sided Quad and Plane included). `None` is a server-only object that indicators and the tool gun still find; `Collidable` alone spawns with alpha 0 or is skipped (`invisible_collider_mode`). |
 | `lights` | adapted | Intensity (times `light_intensity_scale`, 0.025 by default, because ProjectMER content uses official SL's HDRP intensities), range, color and shadows on/off are applied. `LightType`, `Shape`, spot angles and shadow strength are kept but not applied (spot lights become point lights). Shadows stay off unless `allow_light_shadows`; at most `max_lights` lights. |
-| `doors` | adapted | LCZ, HCZ and EZ breakable doors. `RequiredPermissions` uses `KeycardPermissions` (same flag names; `All` means every flag). Bulk doors and gates are skipped. Moving a spawned door respawns it. Every door carries a `NetIdWaypoint`, and player, ragdoll and pickup positions are sent relative to waypoint ids that each side numbers by netId. The port keeps the server's numbering equal to the clients' (`Features/Mobile/MerWaypoints.cs`): a new door's waypoint starts only once the door has a netId, the server renumbers after every door spawn or respawn, and when a door is destroyed while a newer MER door remains, that door is respawned so connected and later-joining clients number alike. A door whose waypoint started without a netId would be numbered ahead of every vanilla door and shift every id, and clients would place teleported players and new pickups at another door. A facility holds at most 224 door waypoints (ids are bytes from 32); further MER doors are skipped with a warning. |
+| `doors` | adapted | LCZ, HCZ and EZ breakable doors. `RequiredPermissions` uses `KeycardPermissions` (same flag names; `All` means every flag). Bulk doors and gates are skipped. Moving a spawned door respawns it. Every door carries a `NetIdWaypoint`, and player, ragdoll and pickup positions are sent relative to waypoint ids that each side numbers by netId. The port keeps the server's numbering equal to the clients' (`Features/Mobile/MerWaypoints.cs`): a new door's waypoint starts only once the door has a netId, the server renumbers after every door spawn or respawn, and when a door is destroyed while a newer MER door remains, that door is respawned so connected and later-joining clients number alike. A door whose waypoint started without a netId would be numbered ahead of every vanilla door and shift every id, and clients would place teleported players and new pickups at another door. A facility holds at most 223 door waypoints (the game numbers them 32 to 254); further MER doors are skipped with a warning. Doors of a load that still wait to spawn count towards the limit, doors being unloaded do not, and a removed door is destroyed at once, so a reload never numbers old and new doors together. |
 | `workstations` | adapted | Position and yaw quantized to 5.625°; pitch and roll are lost. |
 | `item_spawnpoints` | adapted | Firearms use the 13.x firearm state. `Lantern` reads as `Flashlight`; other items missing from Carl Mod are skipped. Pickups are separate objects, not children of the spawnpoint. |
-| `player_spawnpoints` | supported | Applied through LabAPI `PlayerSpawning`. |
+| `player_spawnpoints` | supported | Applied through LabAPI `PlayerSpawning`. With zone culling the spawnpoint's zone is sent to the player before the spawn, as for teleports. |
 | `shooting_targets` | supported | Sport, D-class and binary targets. As in ProjectMER, the target buttons do nothing on MER targets (one of them destroys the target). |
 | `teleports` | supported | Server-side trigger volumes. |
 | `lockers` | adapted | 12 of 16 locker types; SCP-1576, Anti-SCP-207 and SCP-1344 pedestals and the experimental weapon locker are skipped. Chamber permissions use `KeycardPermissions`. Position and yaw only. |
@@ -571,26 +571,26 @@ Maps of the EXILED-based MapEditorReborn for SL 13.2 use another format and do n
 | 5 Schematic, 6 Teleport, 7 Locker | absent | ProjectMER does not build them either; the anchor is kept. |
 | 8 Text, 9 Interactable, 10 Waypoint, 11 Triangle | absent | No such toys; the anchor is kept for child blocks. |
 | `AnimatorName` (animator bundles) | supported | The animated subtree spawns as dynamic toys that follow their anchors, synced every `dynamic_toy_sync_interval`. A bundle built for another Unity version does not load; the schematic then stays static. |
-| `<name>-Rigidbodies.json` | supported | The rigidbody goes on the block's toy (or pickup); its child blocks follow it. |
+| `<name>-Rigidbodies.json` | supported | The rigidbody goes on the block's server-side anchor. Every collidable primitive of its subtree gets a copy of its collider on its own anchor, so the body collides as the subtree's compound collider, as ProjectMER's parented toys did; the toys follow their anchors with their own server colliders switched off. A body waits (kinematic) until those toys are spawned. Entries of pickups apply to the pickup's own body. |
 | `"Static"` property | adapted | Blocks are static toys unless they are in an animated or physics subtree (`static_by_default`). `"Static": false` only counts with `honor_static_property`. |
 
 **Duplicates and merging** (`merge_blocks`, default `Maps`: schematics placed by maps, `mp create` and the tool gun).
-Static primitives identical to an earlier block (type, transform, colour, flags) are dropped. Static cubes that share
-a whole face, and coplanar quads facing the same way that share a whole edge, are merged when they have the same
-rotation (up to the cube's or quad's symmetry), colour, flags and transparency class. Partly transparent blocks and
-blocks under sheared or mirrored parents are left alone. A merged block covers exactly the space of the blocks it
-replaces; those keep their anchor (name, transform, `AttachedBlocks` entry) without a toy. `mp optimize <schematic>`
-reports every step.
+Static primitives identical to an earlier block (type, transform, colour, flags) are dropped, except partly transparent
+ones (stacked translucent copies blend into a deeper tint). Static cubes that share a whole face, and coplanar quads
+facing the same way that share a whole edge, are merged when they have the same rotation (up to the cube's or quad's
+symmetry), colour, flags and transparency class. Partly transparent blocks and blocks under sheared or mirrored parents
+are left alone. A merged block covers exactly the space of the blocks it replaces; those keep their anchor (name,
+transform, `AttachedBlocks` entry) without a toy. `mp optimize <schematic>` reports every step.
 
 ### Schematic API and events
 
 | Item | State | Notes |
 | --- | --- | --- |
 | Schematic root | adapted | A plain server GameObject with `SchematicObject`; blocks are not its children. Each networked block has a `MerBlockLink` with its schematic and block id. |
-| `ObjectSpawner.SpawnSchematic`, `SerializableSchematic.SpawnOrUpdateObject` | adapted | Return the root at once. The file is parsed and planned on a worker thread; anchors and toys are built in later frames within `spawn_time_budget_ms` and networked through the spawn queue. |
+| `ObjectSpawner.SpawnSchematic`, `SerializableSchematic.SpawnOrUpdateObject` | adapted | Return the root at once. The file is parsed and planned on a worker thread; anchors and toys are built in later frames within `spawn_time_budget_ms` and networked through the spawn queue. A schematic whose block data cannot be used (a pickup `Chance` that is not a number...) is destroyed with an error during the build; ProjectMER threw from the spawn call. |
 | `SchematicObject.AttachedBlocks`, `NetworkIdentities`, `AdminToyBases`, `AnimationController` | adapted | Finish the build synchronously first (`EnsureSpawned`). `AttachedBlocks` holds the anchors and the networked objects. |
 | `SchematicObject.Position`, `Rotation`, `Scale` | adapted | Static blocks are resent in place, at most once per 0.25 s. |
-| `SchematicObject.IsStatic` | adapted | `false` networks merged and duplicate blocks individually again, then makes every block a dynamic toy following its anchor. |
+| `SchematicObject.IsStatic` | adapted | `false` networks merged and duplicate blocks individually again, then makes every block a dynamic toy following its anchor, also when animated or physics parts are dynamic already. |
 | `SchematicObject.Data`, `Plan`, `IsSpawned`, `IsBuilt`, `EnsureSpawned`, `NetworkedCount`, `CurrentAdminToyBases`, `CurrentNetworkIdentities`, `SpawnGroup` | adapted | Port additions. `Data` and `Plan` wait for the worker if needed; the `Current*` lists do not finish the build. |
 | `Schematic.SchematicSpawning` | adapted | Raised before the build with a copy of the data. If the file was not parsed yet, it is raised when the worker has parsed it, and cancelling it destroys the root returned earlier. |
 | `Schematic.SchematicSpawned` | adapted | Raised when every server object of the schematic exists, a few frames after the spawn call (ProjectMER raised it during the call). |

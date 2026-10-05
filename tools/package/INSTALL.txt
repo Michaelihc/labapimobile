@@ -1,0 +1,98 @@
+LabAPI-Mobile {{VERSION}} for the Carl Mod SCP: Secret Laboratory server
+=========================================================================
+
+LabAPI-Mobile is Northwood's LabAPI plugin framework ported to the Carl Mod
+mobile server. It runs on the server only: players keep the stock Carl Mod
+client. ProjectMER (the map editor) is included as a plugin.
+
+Requirements
+------------
+- The Carl Mod dedicated server for Windows (tested with game version
+  {{GAME_VERSIONS}}).
+- .NET Framework 4.6.2 or later for the installer. It is part of Windows 10,
+  Windows 11 and Windows Server 2016 and later.
+
+
+Install
+-------
+1. Stop the server.
+2. Extract this archive to any folder.
+3. Open a command prompt in that folder and run:
+
+     LabApiMobile.Installer.exe "C:\path\to\server"
+
+   The server folder is the one that contains "Carl Mod.exe".
+
+   The installer prints the game version it found and refuses to patch a game
+   build it does not recognise. It saves the original
+   Carl Mod_Data\Managed\Assembly-CSharp.dll as
+   Assembly-CSharp.dll.labapi-original, copies LabApi.dll and 0Harmony.dll
+   into Carl Mod_Data\Managed and adds the LabAPI loader call to the game.
+4. Start the server from its own folder, as before. The log shows
+   "[LabApi]" lines, ending with the list of loaded plugins.
+
+Run the installer again to update LabAPI-Mobile or after the game files were
+updated; it always patches the original game file.
+
+
+Where plugins and configs live
+------------------------------
+LabAPI-Mobile keeps its files in
+
+  <AppData>\SCP Secret Laboratory\LabAPI-Mobile\
+
+<AppData> is %APPDATA% of the user running the server
+(C:\Users\<user>\AppData\Roaming). If the server folder contains a file
+hoster_policy.txt with the line
+
+  gamedir_for_configs: true
+
+<AppData> is the AppData folder inside the server folder instead (the same
+switch moves the game's own configs there). The folder is created on the first
+start. It is separate from the "LabAPI" folder of the official game.
+
+  plugins\global\        plugins loaded on every server port
+  plugins\<port>\        plugins loaded on one port only
+  dependencies\global\   libraries that plugins need (also per port)
+  configs\               plugin configs; configs\permissions.yml holds the
+                         LabAPI permission groups
+  LabApi-<port>.yml      LabAPI's own settings
+
+
+ProjectMER
+----------
+1. Install LabAPI-Mobile and start the server once, so the data folder exists.
+2. Stop the server and copy plugins\ProjectMER.dll from this archive into
+
+     <AppData>\SCP Secret Laboratory\LabAPI-Mobile\plugins\global\
+
+3. Start the server. The log shows "ProjectMER" being enabled, and the plugin
+   creates LabAPI-Mobile\configs\ProjectMER\Maps (maps, <name>.yml) and
+   LabAPI-Mobile\configs\ProjectMER\Schematics (one folder per schematic:
+   <name>\<name>.json).
+4. Grant the Remote Admin commands in LabAPI-Mobile\configs\permissions.yml,
+   for example "mpr.*" for a group, then use "mp" in the Remote Admin console
+   ("mp load <map>", "mp list"...). In the phone's client console, type
+   commands with a leading slash: /mp list
+
+Phones render every networked object. Keep maps small: about 150 visible
+primitives at a time is a good budget. "mp stats" shows the counts.
+
+
+Uninstall
+---------
+Stop the server and run:
+
+  LabApiMobile.Installer.exe "C:\path\to\server" --uninstall
+
+This restores the original Assembly-CSharp.dll, deletes the backup and removes
+LabApi.dll and 0Harmony.dll. The LabAPI-Mobile data folder (plugins, configs,
+maps) is kept; delete it yourself if you no longer need it.
+
+
+Contents
+--------
+  LabApiMobile.Installer.exe (+ .config, Mono.Cecil.dll)   the installer
+  framework\    LabApi.dll, 0Harmony.dll (installed into Carl Mod_Data\Managed)
+  plugins\      ProjectMER.dll
+  licenses\     licence texts; see NOTICE.txt
