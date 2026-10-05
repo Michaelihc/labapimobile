@@ -143,12 +143,13 @@ LabAPI event and has commands that drive tests.
 
 ## Licences
 
-- `src/LabApi` and `src/LabApi.SourceGenerators` are a modified version of Northwood Studios' LabAPI, licensed under
-  the GNU Lesser General Public License v3.0 ([src/LabApi/LICENSE](src/LabApi/LICENSE); the GNU GPL v3.0 it
-  supplements is in [tools/package/licenses/GPL-3.0.txt](tools/package/licenses/GPL-3.0.txt)).
+This repository is licensed under the GNU Lesser General Public License v3.0 ([COPYING.LESSER](COPYING.LESSER), which
+supplements the GNU General Public License v3.0 in [COPYING](COPYING)), the licence of the LabAPI it is built from.
+
+- `src/LabApi` and `src/LabApi.SourceGenerators` are a modified version of Northwood Studios' LabAPI, which is also
+  LGPL-3.0 ([src/LabApi/LICENSE](src/LabApi/LICENSE)).
 - The release archive bundles Harmony and Mono.Cecil, both under the MIT License; `NOTICE.txt` in the archive lists
   every component and its licence text.
-- The rest of this repository (installer, tools, documentation) has no licence file yet.
 
 ## Disclaimer
 

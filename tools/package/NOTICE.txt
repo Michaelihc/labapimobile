@@ -27,7 +27,8 @@ Mono.Cecil.dll
   licenses\Mono.Cecil-MIT.txt.
 
 LabApiMobile.Installer.exe
-  Part of labapimobile; source in src/Installer.
+  Part of labapimobile, licensed under the GNU Lesser General Public License
+  version 3 (licenses\LGPL-3.0.txt); source in src/Installer.
 
 SCP: Secret Laboratory is a game by Northwood Studios. Carl Mod is a
 third-party mobile version of it. This package contains no game files.

@@ -107,9 +107,10 @@ dotnet build LabApiMobile.sln -c Release
 
 ## 许可证
 
-- `src/LabApi` 和 `src/LabApi.SourceGenerators` 是 Northwood Studios 的 LabAPI 的修改版本，采用 GNU Lesser General Public License v3.0 许可（[src/LabApi/LICENSE](src/LabApi/LICENSE)；它所补充的 GNU GPL v3.0 见 [tools/package/licenses/GPL-3.0.txt](tools/package/licenses/GPL-3.0.txt)）。
+本仓库采用 GNU Lesser General Public License v3.0 许可（[COPYING.LESSER](COPYING.LESSER)，它补充 [COPYING](COPYING) 中的 GNU General Public License v3.0），与本项目所基于的 LabAPI 相同。
+
+- `src/LabApi` 和 `src/LabApi.SourceGenerators` 是 Northwood Studios 的 LabAPI 的修改版本，LabAPI 同样采用 LGPL-3.0（[src/LabApi/LICENSE](src/LabApi/LICENSE)）。
 - 发布包附带 Harmony 和 Mono.Cecil，二者均采用 MIT 许可证；发布包中的 `NOTICE.txt` 列出了每个组件及其许可证文本。
-- 本仓库的其余部分（安装器、工具、文档）目前还没有许可证文件。
 
 ## 免责声明
 
