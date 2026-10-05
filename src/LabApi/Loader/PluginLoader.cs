@@ -1,21 +1,502 @@
+using LabApi.Events.Handlers;
+using LabApi.Features;
+using LabApi.Features.Console;
+using LabApi.Features.Permissions;
+using LabApi.Features.Permissions.Providers;
+using LabApi.Features.Wrappers;
+using LabApi.Loader.Features.Configuration;
+using LabApi.Loader.Features.Misc;
+using LabApi.Loader.Features.Paths;
+using LabApi.Loader.Features.Plugins;
+using LabApi.Loader.Features.Plugins.Enums;
+using LabApi.Loader.Features.Yaml;
+using NorthwoodLib.Pools;
 using System;
-using HarmonyLib;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
 
 namespace LabApi.Loader;
 
-public static class PluginLoader
+/// <summary>
+/// LabAPIs plugin loader.
+/// Responsible for loading all the different <see cref="Plugin"/>s.
+/// </summary>
+public static partial class PluginLoader
 {
+    private const string LoggerPrefix = "[LOADER]";
+    private const string DllSearchPattern = "*.dll";
+    private const string PdbFileExtension = ".pdb";
+    private const string LabApiConfigName = "LabApi-{0}.yml";
+
+    /// <summary>
+    /// The current LabAPI configuration.
+    /// </summary>
+    public static LabApiConfig Config { get; private set; } = null!;
+
+    /// <summary>
+    /// Whether the <see cref="PluginLoader"/> has been initialized.
+    /// </summary>
+    public static bool Initialized { get; private set; }
+
+    /// <summary>
+    /// The loaded <see cref="Assembly"/> dependencies.
+    /// </summary>
+    public static HashSet<Assembly> Dependencies { get; } = [];
+
+    /// <summary>
+    /// The loaded <see cref="Plugin"/>s.
+    /// </summary>
+    public static Dictionary<Plugin, Assembly> Plugins { get; } = [];
+
+    /// <summary>
+    /// The enabled <see cref="Plugin"/>s.
+    /// </summary>
+    public static HashSet<Plugin> EnabledPlugins { get; } = [];
+
+    /// <summary>
+    /// Initializes the <see cref="PluginLoader"/> and loads all plugins.
+    /// </summary>
     public static void Initialize()
     {
-        ServerConsole.AddLog("[LabApi] bootstrap reached PluginLoader.Initialize", ConsoleColor.Green);
-        Harmony harmony = new("labapi.mobile.spike");
-        harmony.Patch(AccessTools.Method(typeof(ReferenceHub), "Start"), postfix: new HarmonyMethod(typeof(PluginLoader), nameof(HubStartPostfix)));
-        ServerConsole.AddLog("[LabApi] Harmony patch applied", ConsoleColor.Green);
+        // If the loader has already been initialized, we skip the initialization.
+        if (Initialized)
+        {
+            return;
+        }
+
+        Initialized = true;
+
+        // Load LabAPI configuration
+        LoadLabApiConfig();
+
+        // The Carl Mod game assembly has no LabAPI call sites; events and wrapper hooks are Harmony patches.
+        Events.Patches.PatchManager.ApplyAll();
+
+        // Initialize all wrappers
+        InitializeWrappers();
+
+        // We register all the commands in LabAPI to avoid plugin command conflicts.
+        CommandLoader.RegisterCommands();
+
+        // We first load all the dependencies and store them in the dependencies list
+        LoadAllDependencies();
+
+        // Then we load all the plugins and enable them
+        LoadAllPlugins();
+
+        // Resolve the server modded transparency flag
+        ResolveTransparentlyModdedFlag();
+
+        // Add enabled plugins to build info
+        AddPluginsToBuildInfo();
+
+        // We also register the default permissions provider
+        PermissionsManager.RegisterProvider<DefaultPermissionsProvider>();
+
+        // Finally, we invoke the OnPluginsEnabled event
+        ServerEvents.OnPluginsEnabled();
     }
 
-    private static void HubStartPostfix(ReferenceHub __instance)
+    /// <summary>
+    /// Loads all dependencies from the configured dependency paths in <see cref="LabApiConfig.DependencyPaths"/>.
+    /// Each path is relative to <see cref="PathManager.Dependencies"/> and supports port substitution.
+    /// Creates the dependency directories if they don't exist.
+    /// </summary>
+    public static void LoadAllDependencies()
     {
-        // Private member access through the publicized reference.
-        ServerConsole.AddLog($"[LabApi] ReferenceHub.Start postfix: isHost={__instance.isLocalPlayer} netId={__instance.netId}", ConsoleColor.Cyan);
+        // We load all the dependencies from the configured dependency directories
+        Logger.Info($"{LoggerPrefix} Loading all dependencies");
+
+        foreach (string dependencyPath in Config.DependencyPaths)
+        {
+            string resolvedPath = ResolvePath(dependencyPath);
+            string fullPath = Path.Combine(PathManager.Dependencies.FullName, resolvedPath);
+
+            Directory.CreateDirectory(fullPath);
+
+            LoadDependencies(new DirectoryInfo(fullPath).GetFiles(DllSearchPattern, SearchOption.AllDirectories));
+        }
+    }
+
+    /// <summary>
+    /// Loads dependencies from a collection of files.
+    /// </summary>
+    /// <param name="files">The collection of assemblies to load.</param>
+    public static void LoadDependencies(IEnumerable<FileInfo> files)
+    {
+        foreach (FileInfo file in files)
+        {
+            try
+            {
+                // We load the assembly from the specified file.
+                Assembly assembly = Assembly.Load(File.ReadAllBytes(file.FullName));
+
+                // And we add the assembly to the dependencies list.
+                Dependencies.Add(assembly);
+
+                // We finally log that the dependency has been loaded.
+                Logger.Info($"{LoggerPrefix} Successfully loaded {assembly.FullName}");
+            }
+            catch (Exception e)
+            {
+                Logger.Error($"{LoggerPrefix} Couldn't load the dependency inside '{file.FullName}'");
+                Logger.Error(e);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads all plugins from the configured plugin paths in <see cref="LabApiConfig.PluginPaths"/>.
+    /// Each path is relative to <see cref="PathManager.Plugins"/> and supports port substitution.
+    /// Creates the plugin directories if they don't exist.
+    /// </summary>
+    public static void LoadAllPlugins()
+    {
+        // We load all the plugins from the configured plugin directories
+        Logger.Info($"{LoggerPrefix} Loading all plugins");
+
+        foreach (string pluginPath in Config.PluginPaths)
+        {
+            string resolvedPath = ResolvePath(pluginPath);
+            string fullPath = Path.Combine(PathManager.Plugins.FullName, resolvedPath);
+
+            Directory.CreateDirectory(fullPath);
+
+            if (Directory.Exists(fullPath))
+            {
+                LoadPlugins(new DirectoryInfo(fullPath).GetFiles(DllSearchPattern, SearchOption.AllDirectories));
+            }
+        }
+
+        // Then we finally enable all the plugins
+        Logger.Info($"{LoggerPrefix} Enabling all plugins");
+        EnablePlugins(Plugins.Keys.OrderBy(static plugin => plugin.Priority));
+    }
+
+    /// <summary>
+    /// Loads plugins from a collection of files.
+    /// </summary>
+    /// <param name="files">The collection of assemblies to load.</param>
+    public static void LoadPlugins(IEnumerable<FileInfo> files)
+    {
+        List<(string Path, Assembly Assembly)> plugins = [];
+
+        foreach (FileInfo file in files)
+        {
+            try
+            {
+                // We check if the file has a corresponding PDB file
+                FileInfo pdb = new(Path.ChangeExtension(file.FullName, PdbFileExtension));
+
+                // We load the assembly from the specified file.
+                Assembly pluginAssembly = pdb.Exists
+
+                    // In the case that the PDB file exists, we load the assembly with the PDB file.
+                    ? Assembly.Load(File.ReadAllBytes(file.FullName), File.ReadAllBytes(pdb.FullName))
+
+                    // Otherwise, we load the assembly without any debug information.
+                    : Assembly.Load(File.ReadAllBytes(file.FullName));
+                plugins.Add((file.FullName, pluginAssembly));
+            }
+            catch (Exception e)
+            {
+                Logger.Error($"{LoggerPrefix} Couldn't load the plugin inside '{file.FullName}'");
+                Logger.Error(e);
+            }
+        }
+
+        foreach ((string path, Assembly assembly) in plugins)
+        {
+            try
+            {
+                AssemblyUtils.ResolveEmbeddedResources(assembly);
+            }
+            catch (Exception e)
+            {
+                Logger.Error($"{LoggerPrefix} Failed to resolve embedded resources for assembly '{path}'");
+                LogMissingDependencies(assembly);
+                Logger.Error(e);
+            }
+        }
+
+        foreach ((string path, Assembly assembly) in plugins)
+        {
+            try
+            {
+                InstantiatePlugins(assembly.GetTypes(), assembly, path);
+            }
+            catch (Exception e)
+            {
+                Logger.Error($"{LoggerPrefix} Couldn't load the plugin inside '{path}'");
+                LogMissingDependencies(assembly);
+                Logger.Error(e);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Enables a collection of <see cref="Plugin"/>s.
+    /// </summary>
+    /// <param name="plugins">The sorted collection of <see cref="Plugin"/>s.</param>
+    public static void EnablePlugins(IEnumerable<Plugin> plugins)
+    {
+        foreach (Plugin plugin in plugins)
+        {
+            // We try to load the configuration of the plugin
+            if (!plugin.TryLoadProperties())
+            {
+                continue;
+            }
+
+            // We check if the plugin is enabled
+            if (plugin.Properties?.IsEnabled == false)
+            {
+                continue;
+            }
+
+            // We check if the required version is compatible with the installed LabAPI version
+            if (!ValidateVersion(plugin))
+            {
+                continue;
+            }
+
+            // We finally enable the plugin
+            EnablePlugin(plugin);
+        }
+    }
+
+    /// <summary>
+    /// Enables a <see cref="Plugin"/>.
+    /// </summary>
+    /// <param name="plugin">The <see cref="Plugin"/> to enable.</param>
+    public static void EnablePlugin(Plugin plugin)
+    {
+        try
+        {
+            // We mark the server as modded.
+            CustomNetworkManager.Modded = true;
+
+            // We load the configurations of the plugin
+            plugin.LoadConfigs();
+
+            // We register all the plugin commands
+            plugin.RegisterCommands();
+
+            // We enable the plugin if it is not disabled
+            plugin.Enable();
+
+            // We add the plugin to the enabled plugins list
+            EnabledPlugins.Add(plugin);
+
+            // We finally log that the plugin has been enabled
+            Logger.Info($"{LoggerPrefix} Successfully enabled {plugin}");
+        }
+        catch (Exception e)
+        {
+            Logger.Error($"{LoggerPrefix} Couldn't enable the plugin {plugin}");
+            Logger.Error(e);
+        }
+    }
+
+    static partial void InitializeWrappers(); // The contents of this method will be generated by Source Generators
+
+    /// <summary>
+    /// Loads or creates the LabAPI configuration file.
+    /// </summary>
+    private static void LoadLabApiConfig()
+    {
+        string configPath = Path.Combine(PathManager.LabApi.FullName, string.Format(LabApiConfigName, Server.Port));
+        Config = new LabApiConfig();
+
+        try
+        {
+            if (File.Exists(configPath))
+            {
+                string content = File.ReadAllText(configPath);
+                Config = YamlConfigParser.Deserializer.Deserialize<LabApiConfig>(content) ?? Config;
+            }
+
+            // Always save to update with any new properties
+            string serialized = YamlConfigParser.Serializer.Serialize(Config);
+            File.WriteAllText(configPath, serialized);
+        }
+        catch (Exception e)
+        {
+            Logger.Error($"{LoggerPrefix} Failed to load LabAPI configuration, using defaults");
+            Logger.Error(e);
+        }
+    }
+
+    /// <summary>
+    /// Resolves whether the installed plugins are marked as transparent and sets the <see cref="Server.IsTransparentlyModded"/> flag based on the result.
+    /// </summary>
+    private static void ResolveTransparentlyModdedFlag()
+    {
+        if (Plugins.Count == 0)
+        {
+            return;
+        }
+
+        if (Server.IsTransparentlyModded)
+        {
+            return;
+        }
+
+        bool isTransparent = true;
+
+        foreach (Plugin plugin in Plugins.Keys)
+        {
+            if (!plugin.IsTransparent)
+            {
+                isTransparent = false;
+                break;
+            }
+        }
+
+        Server.IsTransparentlyModded = isTransparent;
+
+        if (isTransparent)
+        {
+            Logger.Raw($"{LoggerPrefix} This server has been flagged as transparently modded by one or more installed plugins. If you believe this is a mistake, please review your installed plugins and contact the plugin developers.", ConsoleColor.Red);
+            ServerConsole.Update = true;
+        }
+    }
+
+    /// <summary>
+    /// Add enabled plugins name, author and description to BuildInfo.
+    /// </summary>
+    private static void AddPluginsToBuildInfo()
+    {
+        if (EnabledPlugins.Count == 0)
+        {
+            return;
+        }
+
+        StringBuilder builder = StringBuilderPool.Shared.Rent();
+
+        foreach (Plugin plugin in EnabledPlugins)
+        {
+            builder.AppendFormat("- {0} by {1} [{2}]: {3}\n", plugin.Name, plugin.Author, plugin.Version, plugin.Description);
+        }
+
+        CommandSystem.Commands.Shared.BuildInfoCommand.ModDescription = StringBuilderPool.Shared.ToStringReturn(builder);
+    }
+
+    private static string ResolvePath(string path)
+    {
+        return path.Replace("$port", Server.Port.ToString());
+    }
+
+    private static void LogMissingDependencies(Assembly assembly)
+    {
+        IEnumerable<string> missing = AssemblyUtils.GetMissingDependencies(assembly);
+        if (missing.Any())
+        {
+            Logger.Error($"{LoggerPrefix} Missing dependencies:\n{string.Join("\n", missing.Select(static x => $"-\t {x}"))}");
+        }
+    }
+
+    private static bool ValidateVersion(Plugin plugin)
+    {
+        Version required = plugin.RequiredApiVersion;
+
+        // TODO: Delete (why.....)
+        if (required == null)
+        {
+            return true;
+        }
+
+        Version current = LabApiProperties.CurrentVersion;
+
+        if (required.Major == current.Major)
+        {
+            if (!IsGreaterVersion(required, current))
+            {
+                return true;
+            }
+
+            Logger.Warn($"""
+                         {LoggerPrefix} Potential issue with plugin {plugin}
+                         It was built for a newer minor/patch version of LabAPI, and might not be able to access some features it depends on.
+                         Are you running an older version of the server?
+                         Current LabAPI version: {LabApiProperties.CompiledVersion}
+                         Required by plugin: {required}
+                         """);
+
+            return true;
+        }
+
+        string difference = required.Major < current.Major ? "an outdated major version" : "a newer major version";
+
+        bool shouldLoad = plugin.Properties?.UnsupportedLoading switch
+        {
+            OptionalBoolean.True => true,
+            OptionalBoolean.False => false,
+            _ => Config.LoadUnsupportedPlugins,
+        };
+
+        if (shouldLoad)
+        {
+            Logger.Warn($"""
+                         {LoggerPrefix} Forcefully loading unsupported plugin {plugin}
+                         It was built for {difference} of LabAPI, and will likely have degraded functionality.
+                         Current LabAPI version: {LabApiProperties.CompiledVersion}
+                         Required by plugin: {required}
+                         """);
+            return true;
+        }
+
+        Logger.Error($"""
+                      {LoggerPrefix} Couldn't enable the plugin {plugin}
+                      It was built for {difference} of LabAPI, and would likely have degraded functionality.
+                      To forcefully load it, set the appropriate property in the plugins's properties.yml file.
+                      To forcefully load all unsupported plugins, set the appropriate property in the LabAPI configuration for the current port (LabApi-{Server.Port}.yml).
+                      Current LabAPI version: {LabApiProperties.CompiledVersion}
+                      Required by plugin: {required}
+                      """);
+        return false;
+    }
+
+    private static void InstantiatePlugins(Type[] types, Assembly assembly, string filePath)
+    {
+        foreach (Type type in types)
+        {
+            // We check if the type is derived from Plugin.
+            if (!type.IsSubclassOf(typeof(Plugin)) || type.IsAbstract)
+            {
+                continue;
+            }
+
+            // We create an instance of the type and check if it was successfully created.
+            if (Activator.CreateInstance(type) is not Plugin plugin)
+            {
+                continue;
+            }
+
+            // Set the file path
+            plugin.FilePath = filePath;
+
+            // In that case, we add the plugin to the plugins list and log that it has been loaded.
+            Plugins.Add(plugin, assembly);
+            Logger.Info($"{LoggerPrefix} Successfully loaded {plugin.Name}");
+        }
+    }
+
+    private static bool IsGreaterVersion(Version required, Version current)
+    {
+        Version requiredVersion = new(
+            required.Major,
+            required.Minor,
+            required.Build == -1 ? 0 : required.Build,
+            required.Revision == -1 ? 0 : required.Revision);
+        Version currentVersion = new(
+            current.Major,
+            current.Minor,
+            current.Build == -1 ? 0 : current.Build,
+            current.Revision == -1 ? 0 : current.Revision);
+        return requiredVersion > currentVersion;
     }
 }

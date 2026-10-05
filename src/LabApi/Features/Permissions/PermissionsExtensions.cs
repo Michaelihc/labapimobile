@@ -1,0 +1,41 @@
+using CommandSystem;
+using LabApi.Features.Wrappers;
+using RemoteAdmin;
+using System;
+using System.Collections.Generic;
+
+namespace LabApi.Features.Permissions;
+
+/// <summary>
+/// Represents extension methods for the permissions system.
+/// </summary>
+public static class PermissionsExtensions
+{
+    /// <inheritdoc cref="PermissionsManager.GetPermissionsByProvider"/>
+    public static Dictionary<Type, string[]> GetPermissionsByProvider(this ICommandSender sender) =>
+        Player.Get(sender)?.GetPermissionsByProvider() ?? [];
+
+    /// <inheritdoc cref="IPermissionsProvider.GetPermissions"/>
+    public static string[] GetPermissions(this ICommandSender sender) =>
+        Player.Get(sender)?.GetPermissions() ?? [];
+
+    /// <inheritdoc cref="IPermissionsProvider.HasPermissions"/>
+    public static bool HasPermissions(this ICommandSender sender, params string[] permissions) =>
+        Player.Get(sender)?.HasPermissions(permissions) ?? sender is not PlayerCommandSender;
+
+    /// <inheritdoc cref="IPermissionsProvider.HasAnyPermission"/>
+    public static bool HasAnyPermission(this ICommandSender sender, params string[] permissions) =>
+        Player.Get(sender)?.HasAnyPermission(permissions) ?? sender is not PlayerCommandSender;
+
+    /// <inheritdoc cref="IPermissionsProvider.HasPermission"/>
+    public static bool HasPermission(this ICommandSender sender, string specificPermission) =>
+        Player.Get(sender)?.HasPermission(specificPermission) ?? sender is not PlayerCommandSender;
+
+    /// <inheritdoc cref="IPermissionsProvider.AddPermissions"/>
+    public static void AddPermissions(this ICommandSender sender, params string[] permissions) =>
+        Player.Get(sender)?.AddPermissions(permissions);
+
+    /// <inheritdoc cref="IPermissionsProvider.RemovePermissions"/>
+    public static void RemovePermissions(this ICommandSender sender, params string[] permissions) =>
+        Player.Get(sender)?.RemovePermissions(permissions);
+}
