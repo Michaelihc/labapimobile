@@ -29,7 +29,11 @@ internal static class PlayerEscapePatch
             return true;
         }
 
-        if (hub.roleManager.CurrentRole is not IFpcRole fpcRole || (fpcRole.FpcModule.Position - Escape.WorldPos).sqrMagnitude > Escape.RadiusSqr)
+        // Role instances are pooled: until the next movement update a new role reports its previous holder's position,
+        // while the spawnpoint has already moved the transform. Both must be inside, so a role assigned elsewhere never
+        // raises Escaping with a stale position.
+        if (hub.roleManager.CurrentRole is not IFpcRole fpcRole || (fpcRole.FpcModule.Position - Escape.WorldPos).sqrMagnitude > Escape.RadiusSqr
+            || (hub.transform.position - Escape.WorldPos).sqrMagnitude > Escape.RadiusSqr)
         {
             return false;
         }
