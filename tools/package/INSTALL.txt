@@ -91,8 +91,10 @@ Stop the server and run:
 
   LabApiMobile.Installer.exe "C:\path\to\server" --uninstall
 
-This restores the original Assembly-CSharp.dll, deletes the backup and removes
-LabApi.dll and 0Harmony.dll. The LabAPI-Mobile data folder (plugins, configs)
+This restores the original Assembly-CSharp.dll, deletes the backup, removes
+LabApi.dll and 0Harmony.dll, and restores any file of the same name that the
+installer replaced (kept meanwhile as <file>.labapi-original). An interrupted
+install or uninstall can simply be run again. The LabAPI-Mobile data folder (plugins, configs)
 is kept; delete it yourself if you no longer need it.
 
 

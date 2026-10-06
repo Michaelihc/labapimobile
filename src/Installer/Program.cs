@@ -198,20 +198,33 @@ internal static class Program
         if (!patchedInfo.IsPatched || patchedInfo.Problem != null)
             throw new InstallerException("internal error: the patched assembly failed verification. Nothing was changed.");
 
-        if (writeBackup)
-            File.WriteAllBytes(backup, original);
-
-        HashSet<string> added = ReadManifest(managed);
+        List<string> sources = [];
         foreach (string file in FrameworkFiles)
         {
             string source = Path.Combine(frameworkDir, file);
-            CopyTracked(source, managed, added);
+            sources.Add(source);
             string pdb = Path.ChangeExtension(source, ".pdb");
             if (File.Exists(pdb))
-                CopyTracked(pdb, managed, added);
+                sources.Add(pdb);
         }
 
-        File.WriteAllLines(Path.Combine(managed, ManifestName), added.OrderBy(f => f, StringComparer.OrdinalIgnoreCase));
+        // Fail before changing anything if a file that would be replaced is locked (e.g. by a running server).
+        foreach (string source in sources)
+        {
+            string target = Path.Combine(managed, Path.GetFileName(source));
+            if (File.Exists(target))
+                EnsureWritable(target);
+        }
+
+        if (writeBackup)
+            File.WriteAllBytes(backup, original);
+
+        Manifest manifest = Manifest.Read(managed);
+        foreach (string source in sources)
+            CopyTracked(source, managed, manifest);
+
+        // Rewrites a manifest from an earlier installer (bare file names) in the current format.
+        manifest.Save();
 
         WriteAtomically(gameAssembly, patched);
         if (!Inspect(File.ReadAllBytes(gameAssembly), managed).IsPatched)
@@ -396,41 +409,137 @@ internal static class Program
         File.Delete(temp);
     }
 
-    private static HashSet<string> ReadManifest(string managed)
-    {
-        string manifest = Path.Combine(managed, ManifestName);
-        return File.Exists(manifest)
-            ? new HashSet<string>(File.ReadAllLines(manifest).Where(l => l.Length > 0), StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    }
-
-    /// <summary>Copies a file into Managed and records it when the installer created it (not a game file).</summary>
-    private static void CopyTracked(string source, string managed, HashSet<string> added)
+    /// <summary>
+    /// Copies a framework file into Managed. A file the installer did not create is first backed up next to it and
+    /// restored on uninstall. The manifest entry is saved before the target is touched, so an interrupted install
+    /// can be repeated or uninstalled without losing track of any file.
+    /// </summary>
+    private static void CopyTracked(string source, string managed, Manifest manifest)
     {
         string name = Path.GetFileName(source);
         string target = Path.Combine(managed, name);
-        if (!File.Exists(target))
-            added.Add(name);
+        if (!manifest.Owns(name))
+        {
+            if (File.Exists(target))
+            {
+                // A backup without a manifest entry is left over from an interrupted install that never replaced the
+                // target, so the target is still the original and the backup is refreshed from it.
+                File.Copy(target, target + BackupSuffix, true);
+                manifest.Set(name, Manifest.Replaced);
+                if (!File.ReadAllBytes(target).SequenceEqual(File.ReadAllBytes(source)))
+                    Console.WriteLine($"warning: replaced the existing {name}; the original is kept as {name}{BackupSuffix} and restored on uninstall.");
+            }
+            else
+            {
+                manifest.Set(name, Manifest.Added);
+            }
+
+            manifest.Save();
+        }
+
         File.Copy(source, target, true);
     }
 
+    /// <summary>Deletes the files the installer added and restores the ones it replaced.</summary>
     private static void RemoveInstalledFiles(string managed)
     {
-        string manifest = Path.Combine(managed, ManifestName);
-        if (!File.Exists(manifest))
-            return;
-
-        foreach (string name in ReadManifest(managed))
+        Manifest manifest = Manifest.Read(managed);
+        foreach (KeyValuePair<string, string> entry in manifest.Entries.ToList())
         {
-            // The manifest holds bare file names written by this installer; ignore anything else.
-            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name != Path.GetFileName(name))
-                continue;
-            string path = Path.Combine(managed, name);
-            if (File.Exists(path))
+            string path = Path.Combine(managed, entry.Key);
+            if (entry.Value == Manifest.Replaced)
+            {
+                string saved = path + BackupSuffix;
+                if (File.Exists(saved))
+                {
+                    File.Copy(saved, path, true);
+                    File.Delete(saved);
+                }
+                else
+                {
+                    Console.WriteLine($"warning: the backup of {entry.Key} is missing; left the current {entry.Key} in place.");
+                }
+            }
+            else if (File.Exists(path))
+            {
                 File.Delete(path);
+            }
+
+            // Saved per file, so an interrupted uninstall can be repeated.
+            manifest.Remove(entry.Key);
+            manifest.Save();
         }
 
-        File.Delete(manifest);
+        manifest.Delete();
+    }
+
+    /// <summary>
+    /// The framework files this installer manages, as <c>added &lt;file&gt;</c> (created by the installer) or
+    /// <c>replaced &lt;file&gt;</c> (overwritten after a backup to <c>&lt;file&gt;.labapi-original</c>). A bare file name,
+    /// as written by earlier installers, means added.
+    /// </summary>
+    private sealed class Manifest
+    {
+        public const string Added = "added";
+        public const string Replaced = "replaced";
+
+        private readonly string _path;
+
+        private Manifest(string path) => _path = path;
+
+        public Dictionary<string, string> Entries { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public static Manifest Read(string managed)
+        {
+            Manifest manifest = new(Path.Combine(managed, ManifestName));
+            if (!File.Exists(manifest._path))
+                return manifest;
+
+            foreach (string raw in File.ReadAllLines(manifest._path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line[0] == '#')
+                    continue;
+
+                string kind = Added;
+                string name = line;
+                int space = line.IndexOf(' ');
+                if (space > 0 && line.Substring(0, space) is Added or Replaced)
+                {
+                    kind = line.Substring(0, space);
+                    name = line.Substring(space + 1).Trim();
+                }
+
+                // Only bare file names written by this installer; ignore anything else.
+                if (name.Length == 0 || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || name != Path.GetFileName(name))
+                    continue;
+                manifest.Entries[name] = kind;
+            }
+
+            return manifest;
+        }
+
+        public bool Owns(string name) => Entries.ContainsKey(name);
+
+        public void Set(string name, string kind) => Entries[name] = kind;
+
+        public void Remove(string name) => Entries.Remove(name);
+
+        public void Save()
+        {
+            List<string> lines = ["# LabAPI-Mobile installer: files to delete (added) or restore from <file>.labapi-original (replaced) on uninstall."];
+            lines.AddRange(Entries.OrderBy(e => e.Key, StringComparer.OrdinalIgnoreCase).Select(e => $"{e.Value} {e.Key}"));
+            string temp = _path + ".tmp";
+            File.WriteAllLines(temp, lines);
+            File.Copy(temp, _path, true);
+            File.Delete(temp);
+        }
+
+        public void Delete()
+        {
+            if (File.Exists(_path))
+                File.Delete(_path);
+        }
     }
 
     private static void PrintDataFolder(string serverDir)

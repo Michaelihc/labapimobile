@@ -3,6 +3,7 @@ using LabApi.Loader.Features.Plugins.Configuration;
 using NorthwoodLib.Pools;
 using System;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace LabApi.Events;
@@ -31,7 +32,7 @@ public static class EventManager
 #endif
 
         // We iterate through all the subscribers of the event and invoke them, each isolated by its own try/catch.
-        Delegate[] subscribers = InvocationListCache.Get(eventHandler);
+        Delegate[] subscribers = InvocationLists.Get(eventHandler);
         for (int i = 0; i < subscribers.Length; i++)
         {
             Delegate sub = subscribers[i];
@@ -71,7 +72,7 @@ public static class EventManager
 #endif
 
         // We iterate through all the subscribers of the event and invoke them, each isolated by its own try/catch.
-        Delegate[] subscribers = InvocationListCache<TEventArgs>.Get(eventHandler);
+        Delegate[] subscribers = InvocationLists.Get(eventHandler);
         for (int i = 0; i < subscribers.Length; i++)
         {
             Delegate sub = subscribers[i];
@@ -159,60 +160,19 @@ public static class EventManager
     }
 
     /// <summary>
-    /// Caches the invocation list of the last invoked <see cref="LabEventHandler"/>.
-    /// Delegates are immutable, so the cached array stays valid until the subscriber set changes.
+    /// Caches the invocation list of each event delegate, so invoking an event does not allocate a subscriber array.
     /// </summary>
-    private static class InvocationListCache
+    /// <remarks>
+    /// Delegates are immutable: subscribing or unsubscribing replaces the event's delegate, so a cached list never goes
+    /// stale. Keys are held weakly, so once an event no longer references a delegate (its subscribers changed or all
+    /// unsubscribed), that delegate, its list and the subscribers' targets become collectible.
+    /// </remarks>
+    private static class InvocationLists
     {
-        private static Entry? _last;
+        private static readonly ConditionalWeakTable<Delegate, Delegate[]> Cache = new();
 
-        public static Delegate[] Get(LabEventHandler handler)
-        {
-            Entry? last = _last;
-            if (last is not null && ReferenceEquals(last.Handler, handler))
-            {
-                return last.Subscribers;
-            }
+        private static readonly ConditionalWeakTable<Delegate, Delegate[]>.CreateValueCallback Create = static handler => handler.GetInvocationList();
 
-            last = new Entry(handler, handler.GetInvocationList());
-            _last = last;
-            return last.Subscribers;
-        }
-
-        private sealed class Entry(LabEventHandler handler, Delegate[] subscribers)
-        {
-            public readonly LabEventHandler Handler = handler;
-            public readonly Delegate[] Subscribers = subscribers;
-        }
-    }
-
-    /// <summary>
-    /// Caches the invocation list of the last invoked <see cref="LabEventHandler{TEventArgs}"/> per event args type,
-    /// so invoking an event does not allocate a new subscriber array each time.
-    /// </summary>
-    /// <typeparam name="TEventArgs">The type of the <see cref="EventArgs"/> of the event.</typeparam>
-    private static class InvocationListCache<TEventArgs>
-        where TEventArgs : EventArgs
-    {
-        private static Entry? _last;
-
-        public static Delegate[] Get(LabEventHandler<TEventArgs> handler)
-        {
-            Entry? last = _last;
-            if (last is not null && ReferenceEquals(last.Handler, handler))
-            {
-                return last.Subscribers;
-            }
-
-            last = new Entry(handler, handler.GetInvocationList());
-            _last = last;
-            return last.Subscribers;
-        }
-
-        private sealed class Entry(LabEventHandler<TEventArgs> handler, Delegate[] subscribers)
-        {
-            public readonly LabEventHandler<TEventArgs> Handler = handler;
-            public readonly Delegate[] Subscribers = subscribers;
-        }
+        public static Delegate[] Get(Delegate handler) => Cache.GetValue(handler, Create);
     }
 }

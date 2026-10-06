@@ -36,7 +36,8 @@ later for the installer, which is part of Windows 10, Windows 11 and Windows Ser
 
    It prints the game version it found, refuses to patch an `Assembly-CSharp.dll` it does not recognise as the Carl
    Mod server and warns about untested game versions. It saves `Carl Mod_Data\Managed\Assembly-CSharp.dll` as
-   `Assembly-CSharp.dll.labapi-original`, copies `LabApi.dll` and `0Harmony.dll` into `Carl Mod_Data\Managed`, and
+   `Assembly-CSharp.dll.labapi-original`, copies `LabApi.dll` and `0Harmony.dll` into `Carl Mod_Data\Managed` (an
+   existing file of the same name, such as another mod's `0Harmony.dll`, is kept as `<file>.labapi-original`), and
    adds one `PluginLoader.Initialize()` call to `ServerStatic.Awake`. Everything else is applied at runtime with
    Harmony.
 3. Start the server from its own folder. The log shows `[LabApi] [PATCHES] Applied ... (0 failed)` and the loaded
@@ -50,7 +51,8 @@ To uninstall, stop the server and run:
 LabApiMobile.Installer.exe "C:\path\to\server" --uninstall
 ```
 
-This restores the original `Assembly-CSharp.dll` and removes the framework files; plugins and configs are kept.
+This restores the original `Assembly-CSharp.dll`, removes the framework files and restores any file the installer
+replaced; plugins and configs are kept. An interrupted install or uninstall can simply be run again.
 `INSTALL.txt` in the archive has the same steps.
 
 ### Data folder

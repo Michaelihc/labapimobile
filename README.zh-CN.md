@@ -25,7 +25,7 @@
    LabApiMobile.Installer.exe "C:\path\to\server"
    ```
 
-   安装器会显示检测到的游戏版本；如果 `Assembly-CSharp.dll` 无法识别为 Carl Mod 服务端，它会拒绝修改，对未测试过的游戏版本会给出警告。它把 `Carl Mod_Data\Managed\Assembly-CSharp.dll` 备份为 `Assembly-CSharp.dll.labapi-original`，把 `LabApi.dll` 和 `0Harmony.dll` 复制到 `Carl Mod_Data\Managed`，并在 `ServerStatic.Awake` 中加入一次 `PluginLoader.Initialize()` 调用。其余改动都在运行时通过 Harmony 应用。
+   安装器会显示检测到的游戏版本；如果 `Assembly-CSharp.dll` 无法识别为 Carl Mod 服务端，它会拒绝修改，对未测试过的游戏版本会给出警告。它把 `Carl Mod_Data\Managed\Assembly-CSharp.dll` 备份为 `Assembly-CSharp.dll.labapi-original`，把 `LabApi.dll` 和 `0Harmony.dll` 复制到 `Carl Mod_Data\Managed`（若已存在同名文件，例如其他模组的 `0Harmony.dll`，会保留为 `<文件名>.labapi-original`），并在 `ServerStatic.Awake` 中加入一次 `PluginLoader.Initialize()` 调用。其余改动都在运行时通过 Harmony 应用。
 3. 在服务器自己的文件夹中启动服务器。日志中会出现 `[LabApi] [PATCHES] Applied ... (0 failed)` 以及已加载的插件。
 
 更新 LabAPI-Mobile 或游戏更新后，再运行一次安装器即可；它总是基于原始文件打补丁。
@@ -36,7 +36,7 @@
 LabApiMobile.Installer.exe "C:\path\to\server" --uninstall
 ```
 
-这会恢复原始的 `Assembly-CSharp.dll` 并删除框架文件；插件和配置会保留。发布包中的 `INSTALL.txt` 包含同样的步骤。
+这会恢复原始的 `Assembly-CSharp.dll`，删除框架文件，并恢复安装器替换过的文件；插件和配置会保留。安装或卸载中途失败时，直接重新运行即可。发布包中的 `INSTALL.txt` 包含同样的步骤。
 
 ### 数据文件夹
 
