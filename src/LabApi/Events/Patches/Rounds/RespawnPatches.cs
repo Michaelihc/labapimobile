@@ -1,6 +1,5 @@
 namespace LabApi.Events.Patches.Rounds;
 
-using CarlModExtras;
 using HarmonyLib;
 using LabApi.Events.Arguments.ServerEvents;
 using LabApi.Events.Handlers;
@@ -21,30 +20,34 @@ using PlayerWrapper = LabApi.Features.Wrappers.Player;
 /// respawn manager's team selection. Official: Respawning.WaveManager.InitiateRespawn.
 /// </summary>
 /// <remarks>
-/// Replaces the <see cref="DmFun.ChooseTeam"/> call in <see cref="RespawnManager.Update"/>. A cancelled selection
-/// restarts the respawn cooldown (the fork has no idle state to retry from), like a selection with no spectators.
+/// Inserted after the call that picks the team in <see cref="RespawnManager.Update"/>, which keeps running:
+/// <see cref="RespawnTokensManager.DominatingTeam"/> in builds without the deathmatch module, <c>DmFun.ChooseTeam</c> in
+/// the build with it. A cancelled selection restarts the respawn cooldown (the fork has no idle state to retry from), like
+/// a selection with no spectators.
 /// </remarks>
 [HarmonyPatch(typeof(RespawnManager), nameof(RespawnManager.Update))]
 internal static class RespawnPatches
 {
+    private const string DmFunTypeName = "CarlModExtras.DmFun";
+
     private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator generator)
     {
-        MethodInfo chooseTeam = AccessTools.Method(typeof(DmFun), nameof(DmFun.ChooseTeam));
+        MethodInfo dominatingTeam = AccessTools.PropertyGetter(typeof(RespawnTokensManager), nameof(RespawnTokensManager.DominatingTeam));
         bool patched = false;
 
         foreach (CodeInstruction instruction in instructions)
         {
-            if (patched || !instruction.Calls(chooseTeam))
+            yield return instruction;
+            if (patched || !IsTeamSelection(instruction, dominatingTeam))
             {
-                yield return instruction;
                 continue;
             }
 
             patched = true;
             Label selected = generator.DefineLabel();
 
-            // SpawnableTeamType team = SelectTeam(); if (team == None) { RestartSequence(); return; }
-            yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(RespawnPatches), nameof(SelectTeam))).MoveLabelsFrom(instruction);
+            // team = RaiseTeamSelection(team); if (team == None) { RestartSequence(); return; }
+            yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(RespawnPatches), nameof(RaiseTeamSelection)));
             yield return new CodeInstruction(OpCodes.Dup);
             yield return new CodeInstruction(OpCodes.Brtrue, selected);
             yield return new CodeInstruction(OpCodes.Pop);
@@ -56,15 +59,21 @@ internal static class RespawnPatches
 
         if (!patched)
         {
-            Logger.Warn($"[PATCHES] {nameof(RespawnPatches)}: DmFun.ChooseTeam call not found, wave team selection events disabled.");
+            Logger.Warn($"[PATCHES] {nameof(RespawnPatches)}: no team selection call (RespawnTokensManager.DominatingTeam or DmFun.ChooseTeam) in RespawnManager.Update, wave team selection events disabled.");
         }
     }
 
-    /// <summary>
-    /// Selects a team as <see cref="RespawnManager"/> does and raises the selection events.
-    /// </summary>
-    /// <returns>The selected team, or <see cref="SpawnableTeamType.None"/> when the selection was cancelled.</returns>
-    private static SpawnableTeamType SelectTeam() => RaiseTeamSelection(DmFun.ChooseTeam());
+    private static bool IsTeamSelection(CodeInstruction instruction, MethodInfo dominatingTeam)
+    {
+        if (instruction.opcode != OpCodes.Call || instruction.operand is not MethodInfo method)
+        {
+            return false;
+        }
+
+        // The deathmatch build calls CarlModExtras.DmFun.ChooseTeam(), matched by name so LabAPI never references CarlModExtras.
+        return method == dominatingTeam
+            || (method.Name == "ChooseTeam" && method.ReturnType == typeof(SpawnableTeamType) && method.GetParameters().Length == 0 && method.DeclaringType?.FullName == DmFunTypeName);
+    }
 
     /// <summary>
     /// Raises the wave team selection events for a team.

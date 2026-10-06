@@ -15,6 +15,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
+using Logger = LabApi.Features.Console.Logger;
 
 namespace LabApi.Events.Patches.ItemsGeneral;
 
@@ -102,8 +103,8 @@ internal static class ProjectileExplodingPatch
             return true;
         }
 
-        // SCP-2176 raises ProjectileExploding in its own override before calling this base body.
-        if (__instance is not InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile && !GrenadeEvents.Exploding(__instance))
+        // SCP-2176 raises ProjectileExploding in its own override before calling this base body, where the build has one.
+        if ((!Scp2176ExplodingPatch.IsActive || __instance is not InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile) && !GrenadeEvents.Exploding(__instance))
         {
             return false;
         }
@@ -124,10 +125,41 @@ internal static class ProjectileExplodingPatch
 /// <summary>
 /// Raises ProjectileExploding for SCP-2176 before it shatters.
 /// </summary>
+/// <remarks>
+/// Builds whose SCP-2176 has no own <c>ServerFuseEnd</c> (or no <c>_hasTriggered</c> flag) skip this patch; SCP-2176 then
+/// raises ProjectileExploding from <see cref="ProjectileExplodingPatch"/> like the other grenades. The target is resolved in
+/// <see cref="TargetMethod"/> because it may be absent.
+/// </remarks>
 // Official: InventorySystem/Items/ThrowableProjectiles/Scp2176Projectile.cs ServerFuseEnd
-[HarmonyPatch(typeof(InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile), nameof(InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile.ServerFuseEnd))]
+[HarmonyPatch]
 internal static class Scp2176ExplodingPatch
 {
+    private static readonly MethodInfo? Target = FindTarget();
+
+    /// <summary>
+    /// Gets whether SCP-2176's own fuse end raises ProjectileExploding.
+    /// </summary>
+    internal static bool IsActive => Target != null;
+
+    private static MethodInfo? FindTarget()
+    {
+        Type type = typeof(InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile);
+        MethodInfo? method = AccessTools.DeclaredMethod(type, nameof(InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile.ServerFuseEnd));
+        return method != null && AccessTools.DeclaredField(type, nameof(InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile._hasTriggered)) != null ? method : null;
+    }
+
+    private static bool Prepare()
+    {
+        if (Target == null)
+        {
+            Logger.Info("[PATCHES] SCP-2176 has no own ServerFuseEnd in this build; its ProjectileExploding event is raised from the shared grenade fuse end.");
+        }
+
+        return Target != null;
+    }
+
+    private static MethodBase TargetMethod() => Target!;
+
     private static bool Prefix(InventorySystem.Items.ThrowableProjectiles.Scp2176Projectile __instance)
     {
         if (!ServerEvents.HasProjectileExploding || __instance._hasTriggered)

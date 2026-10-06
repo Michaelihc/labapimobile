@@ -8,8 +8,10 @@ using Logger = LabApi.Features.Console.Logger;
 using MEC;
 using PlayerRoles;
 using RoundRestarting;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Reflection.Emit;
 using UnityEngine;
 using RoundWrapper = LabApi.Features.Wrappers.Round;
@@ -23,15 +25,44 @@ using RoundWrapper = LabApi.Features.Wrappers.Round;
 /// the fork rules: a check every 2.5 s after a 15 s grace period, re-evaluated only after the kill count changed,
 /// and the 30 minute overtime end. Differences: a vetoed or cancelled ending is re-evaluated on the next check even
 /// without a new kill (as the official loop does), <see cref="RoundSummary.ForceEnd"/> (used by
-/// <see cref="RoundWrapper.End"/>) ends the round through the same path instead of stalling it, and with the Carl Mod
-/// <c>deathmatch</c> config enabled the round is checked every 2.5 s with <c>CanEnd = false</c> while
-/// <see cref="ServerEvents.RoundEndingConditionsCheck"/> has subscribers, so a plugin can end a deathmatch round.
+/// <see cref="RoundWrapper.End"/>) ends the round through the same path instead of stalling it, and on the build with the
+/// deathmatch module, with its <c>deathmatch</c> config enabled, the round is checked every 2.5 s with <c>CanEnd = false</c>
+/// while <see cref="ServerEvents.RoundEndingConditionsCheck"/> has subscribers, so a plugin can end a deathmatch round.
 /// The iterator stub is small enough to be inlined, so its call in <c>RoundSummary.Start</c> is redirected instead.
+/// Applied only when the native coroutine is one of the known Carl Mod 0.0.4 bodies; otherwise the game's coroutine runs.
 /// </remarks>
 [HarmonyPatch(typeof(RoundSummary), nameof(RoundSummary.Start))]
 internal static class RoundSummaryPatch
 {
     private const string DeathmatchKey = "deathmatch";
+
+    // The coroutine's MoveNext without and with the deathmatch build's "deathmatch" config check.
+    private const string StandardBody = "43cfe2f19da7b5bf";
+    private const string DeathmatchBody = "a48628bdd3f9e23a";
+
+    private static readonly MethodInfo? Target = FindCoroutineBody();
+
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+
+    private static readonly string? Fingerprint;
+
+    private static bool Prepare()
+    {
+        if (Variant != BodyVariant.Unknown)
+        {
+            return true;
+        }
+
+        PatchManager.Skip(typeof(RoundSummaryPatch), NativeBody.UnknownBody(Target, Fingerprint, "the game's round-end check runs unchanged; RoundEndingConditionsCheck / RoundEnding / RoundEnded are not raised."));
+        return false;
+    }
+
+    private static MethodInfo? FindCoroutineBody()
+    {
+        MethodInfo? coroutine = AccessTools.DeclaredMethod(typeof(RoundSummary), nameof(RoundSummary._ProcessServerSideCode));
+        Type? stateMachine = coroutine?.GetCustomAttribute<IteratorStateMachineAttribute>()?.StateMachineType;
+        return stateMachine == null ? null : AccessTools.DeclaredMethod(stateMachine, "MoveNext");
+    }
 
     private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
     {
@@ -70,7 +101,7 @@ internal static class RoundSummaryPatch
             bool deathmatch = false;
             if (!forced)
             {
-                deathmatch = ConfigFile.ServerConfig.GetBool(DeathmatchKey);
+                deathmatch = Variant == BodyVariant.Deathmatch && ConfigFile.ServerConfig.GetBool(DeathmatchKey);
                 if ((deathmatch && !ServerEvents.HasRoundEndingConditionsCheck)
                     || RoundSummary.RoundLock
                     || (summary.KeepRoundOnOne && RoundWrapper.CountNonServerHubs() < 2))

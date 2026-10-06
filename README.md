@@ -11,9 +11,14 @@ only use content that client already knows.
 
 ## Status
 
-- Targets the Carl Mod dedicated server for Windows, game version 0.0.4.
+- Targets the Carl Mod dedicated server for Windows, game version 0.0.4. Both 0.0.4 server builds are supported and
+  tested with the same `LabApi.dll`: the official server distribution and the build with the deathmatch module
+  (`CarlModExtras.dll`). See [Carl Mod server builds](docs/compatibility.md#carl-mod-server-builds) for what differs.
+- Carl Mod 0.0.5 is not tested. LabAPI-Mobile detects game code it does not know: the affected patches are not applied
+  (the log names each one and the events it loses) and the game's own code keeps running; damage and death events are
+  still raised.
 - Wrappers, event arguments and events follow official LabAPI 1.1.7. Each event is raised by a Harmony patch at the
-  point equivalent to the official call site; all 187 patch classes apply at startup with no failures.
+  point equivalent to the official call site; on both 0.0.4 builds 187 patch classes apply at startup with no failures.
 - [docs/compatibility.md](docs/compatibility.md) lists every wrapper, member and event that is adapted, approximated
   or absent on Carl Mod (no SCP-3114, no speaker or text toys, fork types such as `KeycardPermissions`, ...). Anything
   not listed there works as in official LabAPI.
@@ -24,8 +29,9 @@ only use content that client already knows.
 
 ## Install on a server
 
-Requirements: the Carl Mod dedicated server for Windows (tested with game version 0.0.4) and .NET Framework 4.6.2 or
-later for the installer, which is part of Windows 10, Windows 11 and Windows Server 2016 and later.
+Requirements: the Carl Mod dedicated server for Windows (tested with game version 0.0.4, both the official server
+distribution and the build with the deathmatch module) and .NET Framework 4.6.2 or later for the installer, which is
+part of Windows 10, Windows 11 and Windows Server 2016 and later.
 
 1. Stop the server and extract the release archive `LabApiMobile-<version>.zip` to any folder.
 2. Run the installer with the server folder (the one that contains `Carl Mod.exe`):
@@ -34,14 +40,15 @@ later for the installer, which is part of Windows 10, Windows 11 and Windows Ser
    LabApiMobile.Installer.exe "C:\path\to\server"
    ```
 
-   It prints the game version it found, refuses to patch an `Assembly-CSharp.dll` it does not recognise as the Carl
-   Mod server and warns about untested game versions. It saves `Carl Mod_Data\Managed\Assembly-CSharp.dll` as
+   It prints the game version and build it found, refuses to patch an `Assembly-CSharp.dll` it does not recognise as
+   the Carl Mod server and warns about untested game versions. It saves `Carl Mod_Data\Managed\Assembly-CSharp.dll` as
    `Assembly-CSharp.dll.labapi-original`, copies `LabApi.dll` and `0Harmony.dll` into `Carl Mod_Data\Managed` (an
    existing file of the same name, such as another mod's `0Harmony.dll`, is kept as `<file>.labapi-original`), and
    adds one `PluginLoader.Initialize()` call to `ServerStatic.Awake`. Everything else is applied at runtime with
    Harmony.
-3. Start the server from its own folder. The log shows `[LabApi] [PATCHES] Applied ... (0 failed)` and the loaded
-   plugins.
+3. Start the server from its own folder. The log shows `[LabApi] [PATCHES] Applied ... (0 failed, 0 skipped for this
+   server build)` and the loaded plugins. On a game build LabAPI-Mobile does not know, `[PATCHES] ... not applied`
+   warnings name each patch that stays off and the events it loses.
 
 Run the installer again to update LabAPI-Mobile or after a game update; it always patches the original file.
 
@@ -109,7 +116,8 @@ Phones are the bottleneck: low-end devices render every networked object and rec
 
 Requirements: the .NET SDK (8 or later), Python 3 and your own copy of the Carl Mod dedicated server ZIP. The game
 files are not in this repository; the projects compile against the server's `Carl Mod_Data\Managed` assemblies,
-extracted to `.runtime\server-original`:
+extracted to `.runtime\server-original`. Either 0.0.4 build works: `LabApi.dll` does not reference `CarlModExtras`,
+and the result runs on both builds.
 
 ```powershell
 python tools/extract-server.py --zip <path to the server ZIP>   # once: extracts to .runtime\server-original

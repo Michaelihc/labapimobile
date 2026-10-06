@@ -20,7 +20,10 @@ internal static class Program
     private const string LoaderMethod = "Initialize";
     private static readonly string[] FrameworkFiles = ["LabApi.dll", "0Harmony.dll"];
 
-    /// <summary>Game versions (GameCore.Version.VersionString) this release was tested on.</summary>
+    /// <summary>
+    /// Game versions (GameCore.Version.VersionString) this release was tested on. Two 0.0.4 server builds exist and both
+    /// were tested: the official server distribution and a build with the deathmatch module (CarlModExtras).
+    /// </summary>
     private static readonly string[] TestedVersions = ["0.0.4"];
 
     private const int ExitOk = 0;
@@ -150,6 +153,7 @@ internal static class Program
         GameInfo info = ReferenceEquals(original, current) ? currentInfo : Inspect(original, managed);
         Console.WriteLine($"Server:       {serverDir}");
         Console.WriteLine($"Game version: {info.VersionText}");
+        Console.WriteLine($"Game build:   {(info.HasDeathmatch ? "with the deathmatch module (CarlModExtras)" : "without the deathmatch module")}");
         if (info.Problem != null)
         {
             throw new InstallerException(
@@ -283,6 +287,9 @@ internal static class Program
         public string VersionText = "unknown (GameCore.Version not found)";
         public bool IsPatched;
 
+        /// <summary>Whether the game assembly has the deathmatch module's members (PlayerStats.DmCleanup).</summary>
+        public bool HasDeathmatch;
+
         /// <summary>Why the image cannot be patched; null when it is a recognised Carl Mod build.</summary>
         public string? Problem;
     }
@@ -295,6 +302,7 @@ internal static class Program
         ModuleDefinition module = game.MainModule;
 
         ReadVersion(module, info);
+        info.HasDeathmatch = module.GetType("PlayerStatsSystem.PlayerStats")?.Methods.Any(m => m.Name == "DmCleanup") == true;
 
         MethodDefinition? awake = FindAwake(module);
         if (awake == null)

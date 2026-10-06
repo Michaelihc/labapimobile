@@ -1,4 +1,3 @@
-using CarlModExtras;
 using HarmonyLib;
 using InventorySystem;
 using InventorySystem.Configs;
@@ -11,14 +10,43 @@ using PlayerRoles;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace LabApi.Events.Patches.Players;
 
+/// <summary>
+/// Raises ReceivingLoadout / ReceivedLoadout.
+/// </summary>
+/// <remarks>
+/// Runs the original untouched unless a loadout event has subscribers; otherwise replays the Carl Mod body with the events,
+/// including the deathmatch module's loadout hook on the build that has it. Applied only when the native body is one of
+/// the known Carl Mod 0.0.4 bodies.
+/// </remarks>
 // Official: InventorySystem/InventoryItemProvider.cs ServerGrantLoadout
-// Runs the original untouched unless a loadout event has subscribers; otherwise replays the Carl Mod body with the events.
 [HarmonyPatch(typeof(InventoryItemProvider), nameof(InventoryItemProvider.ServerGrantLoadout))]
 internal static class PlayerLoadoutPatch
 {
+    // InventoryItemProvider.ServerGrantLoadout without and with the deathmatch module's DmFun.OnLoadout call.
+    private const string StandardBody = "7464e8e33b1f2c00";
+    private const string DeathmatchBody = "08878d7420d7a1db";
+
+    private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(InventoryItemProvider), nameof(InventoryItemProvider.ServerGrantLoadout));
+
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+
+    private static readonly string? Fingerprint;
+
+    private static bool Prepare()
+    {
+        if (Variant == BodyVariant.Standard || (Variant == BodyVariant.Deathmatch && CarlModDeathmatch.HasLoadoutHook))
+        {
+            return true;
+        }
+
+        PatchManager.Skip(typeof(PlayerLoadoutPatch), NativeBody.UnknownBody(Target, Fingerprint, "ReceivingLoadout / ReceivedLoadout are not raised."));
+        return false;
+    }
+
     private static bool Prefix(ReferenceHub target, RoleTypeId roleTypeId, bool resetInventory)
     {
         if (!PlayerEvents.HasReceivingLoadout && !PlayerEvents.HasReceivedLoadout)
@@ -77,9 +105,9 @@ internal static class PlayerLoadoutPatch
             InventoryItemProvider.OnItemProvided?.Invoke(target, item);
         }
 
-        if (defined)
+        if (defined && Variant == BodyVariant.Deathmatch)
         {
-            DmFun.OnLoadout(target);
+            CarlModDeathmatch.OnLoadout(target);
         }
 
         if (PlayerEvents.HasReceivedLoadout)

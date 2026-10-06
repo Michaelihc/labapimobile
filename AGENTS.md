@@ -21,7 +21,8 @@ IL2CPP and is never patched. Plugins may use only content the stock Carl Mod cli
 - `tools/Package.ps1`, `tools/package/` — framework-only release archive (installer, `LabApi.dll`,
   `0Harmony.dll`, `INSTALL.txt`, `NOTICE.txt`, licence texts) in `dist/`.
 - `README.md` / `README.zh-CN.md` — English and Simplified Chinese READMEs; keep both in sync.
-- `.runtime/` (ignored) — extracted server (`server-original`), test servers, logs, captures.
+- `.runtime/` (ignored) — extracted servers (`server-original`: the 0.0.4 build with the deathmatch module;
+  `server-official-004`: the official 0.0.4 server distribution), test servers, logs, captures.
 - `dist/` (ignored) — package output.
 
 The ProjectMER port lives in its own repository (https://github.com/Michaelihc/projectmer-mobile); a local
@@ -53,6 +54,12 @@ Use the Carl Mod server assemblies to verify implementation signatures; the buil
 SL metarepo do not establish compatibility. Client C# exports in the analysis workspace are IL2CPP metadata
 views with placeholder method bodies; inspect native code to establish client behavior.
 
+Two 0.0.4 server builds exist and one `LabApi.dll` must run on both: the official server distribution (no
+`CarlModExtras.dll`; source: the `Carl Mod Server` folder of `CarlMod-Exiled-deployment-full.zip` in the
+`yeeAM-Exiled/CarlMod-Exiled` v1.0.0 release, for local testing only, never committed or republished) and the build
+with the deathmatch module (`CarlModExtras.dll`, `PlayerStats.DmCleanup` and other `Dm*` members). They differ in a few
+method bodies; `docs/compatibility.md` ("Carl Mod server builds") lists what differs. Test changes to patches on both.
+
 ## Porting rules
 
 - Keep official LabAPI public API wherever the fork can support it, so LabAPI plugins port by recompiling.
@@ -68,6 +75,14 @@ views with placeholder method bodies; inspect native code to establish client be
   decompilation) and targets the fork method by `[HarmonyPatch]` attributes.
 - Wrapper lifecycle hooks that official SL exposes as static game events (`OnInstanceCreated`, `OnAdded`...)
   but the fork lacks are Harmony patches in `Events/Patches/Internal/`.
+- Never reference `CarlModExtras` or deathmatch-only game members directly (a missing member breaks the JIT of the
+  calling method on builds without them); go through `Events/Patches/CarlModDeathmatch.cs`, which binds them by
+  reflection.
+- A patch that copies or replaces a native body that differs between builds identifies the target with
+  `NativeBody.Identify` (fingerprints of the standard and the deathmatch body) and, for an unknown body, declines in
+  `Prepare` with `PatchManager.Skip` so the game code keeps running. The skip warning prints the new fingerprint: compare
+  the native bodies, update the copy, then add the fingerprint. A patch whose target may be absent resolves it in
+  `TargetMethod` and declines in `Prepare` instead of failing.
 
 ## Performance rules
 

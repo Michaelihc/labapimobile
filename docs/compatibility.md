@@ -15,11 +15,13 @@ States used in the tables:
 - **absent**: removed because the game feature does not exist in Carl Mod. Nothing is left as a throwing stub.
 
 Every event is raised by a Harmony patch in `src/LabApi/Events/Patches/<Area>/`, applied by `PatchManager` from
-`PluginLoader.Initialize()` (187 patch classes). A patch checks `<Handler>.Has<Event>` first and leaves the game
-method untouched while the event has no subscribers.
+`PluginLoader.Initialize()` (189 patch classes; on both known server builds 187 apply and the two damage fallbacks
+described under [Carl Mod server builds](#carl-mod-server-builds) stay inactive). A patch checks `<Handler>.Has<Event>`
+first and leaves the game method untouched while the event has no subscribers.
 
 ## Contents
 
+- [Carl Mod server builds](#carl-mod-server-builds)
 - [Core: loader, events, permissions, admin toys](#core-loader-events-permissions-admin-toys)
 - [Admin: authentication, moderation, Remote Admin, commands, server wrappers](#admin-authentication-moderation-remote-admin-commands-server-wrappers)
 - [Player: connection, damage, roles, movement, player and ragdoll wrappers](#player-connection-damage-roles-movement-player-and-ragdoll-wrappers)
@@ -28,6 +30,40 @@ method untouched while the event has no subscribers.
 - [Facility: doors, rooms, elevators, structures, hazards, SCP-914](#facility-doors-rooms-elevators-structures-hazards-scp-914)
 - [Round, respawn, CASSIE, decontamination and warhead](#round-respawn-cassie-decontamination-and-warhead)
 - [SCP role events](#scp-role-events)
+
+## Carl Mod server builds
+
+Two Windows server builds report game version 0.0.4. One `LabApi.dll` supports both:
+
+| Build | Recognised by | Game behaviour that differs |
+| --- | --- | --- |
+| Official server distribution | no `CarlModExtras.dll` in `Carl Mod_Data/Managed` | The standard 13.x behaviour described on this page: disarming needs a held item that allows it (a firearm), and a respawn wave plays its entry animation before it spawns. |
+| Build with the deathmatch module | `CarlModExtras.dll` (`CarlModExtras.DmFun`) and deathmatch members in Assembly-CSharp (`PlayerStats.DmCleanup`) | Extra configs: `deathmatch` (direct respawns 5 s after death, no natural round end, kill broadcasts), timed `funmode` loadouts, `auto_cleanup`, `death_no_drop`, `infinite_ammo`, `infinite_stamina`, `lock_gate_ab`. Extra chat: RA `help <text>` and client `.s <text>`; RA `wiki` grants the `wiki_group` group. The RA commands `mtf` and `ci` replace `stare` and `096state`. Any held item allows disarming. A respawn wave spawns as soon as its team is chosen. |
+
+LabAPI-Mobile keeps each build's own behaviour:
+
+- `LabApi.dll` has no reference to `CarlModExtras`. The module's members are looked up once at startup; on a build
+  without the module they are simply absent.
+- Patches that copy a native body whose code differs between the builds (`PlayerStats.DealDamage` / `KillPlayer`,
+  `CommandProcessor.ProcessQuery`, `QueryProcessor.ProcessGameConsoleQuery`, `InventoryItemProvider.ServerGrantLoadout`
+  and the `RoundSummary` coroutine) identify the target's IL at startup and run the copy written for that body. The
+  respawn team selection events are inserted after whichever call picks the team (`RespawnTokensManager.DominatingTeam`
+  or `DmFun.ChooseTeam`).
+- The startup log names the build (`[PATCHES] Game build: ...`) and ends with
+  `Applied N patch classes in X ms (F failed, S skipped for this server build)`; on both 0.0.4 builds that is 187
+  applied, 0 failed, 0 skipped.
+
+Other builds (including Carl Mod 0.0.5) are not tested. On a build whose bodies are not the known ones:
+
+- A patch that copies an unknown body is not applied: the game's own code runs, the events it raised are unavailable,
+  and the log names the patch, the method, its IL fingerprint and the missing events (`[PATCHES] <Patch> not applied: ...`).
+  This applies to the RA and client console command events, the loadout events and the round ending events.
+- The damage events are still raised, around the unchanged game code (`PlayerDamageFallbackPatch` on `DealDamage`,
+  `PlayerDeathFallbackPatch` on `KillPlayer`): Hurting runs before the role's damage processing, Hurt after the damage
+  (for a lethal hit just before Dying), Dying after the game's own death callbacks (`OnAnyPlayerDied`, which also counts
+  the kill), and cancelling Dying skips `KillPlayer`, leaving the player alive at 0 HP. When `KillPlayer` itself cannot
+  be patched, Dying and Death are not raised.
+- An SCP-2176 without its own `ServerFuseEnd` raises ProjectileExploding from the shared grenade fuse end.
 
 ## Core: loader, events, permissions, admin toys
 
@@ -106,7 +142,7 @@ event has subscribers; otherwise the game method runs untouched). Patches live i
 | `PlayerEvents.GroupChanging` / `GroupChanged` | supported | `ServerRoles.SetGroup`; `GroupChanged` fires on every completed call. |
 | `PlayerEvents.UsingIntercom` | supported | `Intercom.CheckPlayer`; cancelling makes the speaker check fail. |
 | `PlayerEvents.UsedIntercom` | approximated | When the intercom state goes from in-use to cooldown (state setter, no per-frame hook), so the RA intercom timeout command also raises it. |
-| `ServerEvents.CommandExecuting` / `CommandExecuted` | approximated | RA (`CommandProcessor.ProcessQuery`), server console (`GameCore.Console.TypeCommand`) and client console (`QueryProcessor.ProcessGameConsoleQuery`). Not raised for the fork's built-in `ServerConsole` keywords (`FORCESTART`, `STOPNEXTROUND`, `RESTARTNEXTROUND`, `CONFIG`, `IDLE`...), Carl Mod's `help`/`wiki` RA queries or the `.s` chat command. For client commands a changed `Response` is sent (official sends the original). |
+| `ServerEvents.CommandExecuting` / `CommandExecuted` | approximated | RA (`CommandProcessor.ProcessQuery`), server console (`GameCore.Console.TypeCommand`) and client console (`QueryProcessor.ProcessGameConsoleQuery`). Not raised for the fork's built-in `ServerConsole` keywords (`FORCESTART`, `STOPNEXTROUND`, `RESTARTNEXTROUND`, `CONFIG`, `IDLE`...), or, on the deathmatch build, its `help <text>`/`wiki` RA queries and `.s` chat command. For client commands a changed `Response` is sent (official sends the original). |
 | `ServerEvents.SendingAdminChat` / `SentAdminChat` | approximated | Admin chat is an RA query starting with `@` in the fork. `Message` excludes the leading `@`; the fork appends ` ~<nickname>` after the event and relays it as a broadcast-style RA reply. No rich-text sanitising or length cap is added. |
 | `ServerEvents.Shutdown` | supported | `Shutdown.Quit`, once; raised just before `Shutdown.OnQuit` instead of after it. |
 
@@ -138,10 +174,10 @@ listens.
 | `PlayerEvents.Left` | supported | `ReferenceHub.OnDestroy`, every non-host hub, before the wrapper is removed. |
 | `PlayerEvents.SendingVoiceMessage` / `ReceivingVoiceMessage` | supported | `VoiceTransceiver.ServerReceiveMessage`. Keeps the fork's mute check (only exact `LocalRegular`/`GlobalRegular` flags block) and its hear-yourself rule. |
 | `PlayerEvents.UpdatingEffect` / `UpdatedEffect` | approximated | `StatusEffectBase.ForceIntensity` on the server. `UpdatedEffect` runs after the effect's enable/disable callbacks instead of before them. If a handler sets `Intensity` to the current value, nothing is synced (the fork returns early). |
-| `PlayerEvents.Hurting` / `Hurt` / `Dying` / `Death` | supported | `PlayerStats.DealDamage`, same order as official: Hurting before `ApplyDamage`, Hurt after it, Dying before `OnAnyPlayerDied`, Death after `KillPlayer` (ragdoll, item drop, spectator role and the fork's deathmatch messages). Cancelling Dying leaves the player alive at 0 HP, as in official. Carl Mod has no spawn-protection damage check in `DealDamage`. `DealDamage` is always replaced, also without subscribers: the fork's `KillPlayer` branches into the middle of an instruction when the player is not a spectator after `ServerSetRole(Spectator, Died)` and Harmony cannot patch it, so the replacement runs a corrected copy (ragdoll, item drop unless `death_no_drop`, spectator role, console message, the deathmatch broadcasts, `SpectatorRole.ServerSetData` only for a spectator). |
+| `PlayerEvents.Hurting` / `Hurt` / `Dying` / `Death` | supported | `PlayerStats.DealDamage`, same order as official: Hurting before `ApplyDamage`, Hurt after it, Dying before `OnAnyPlayerDied`, Death after `KillPlayer` (ragdoll, item drop, spectator role, and on the deathmatch build its broadcasts). Cancelling Dying leaves the player alive at 0 HP, as in official. Carl Mod has no spawn-protection damage check in `DealDamage`. Official distribution: `DealDamage` is replaced only while a damage event has subscribers, and the replacement calls the game's own `KillPlayer`. Deathmatch build: `DealDamage` is always replaced, also without subscribers: that build's `KillPlayer` branches into the middle of an instruction when the player is not a spectator after `ServerSetRole(Spectator, Died)` and Harmony cannot patch it, so the replacement runs a corrected copy (ragdoll, item drop unless `death_no_drop`, spectator role, console message, the deathmatch broadcasts, `SpectatorRole.ServerSetData` only for a spectator). Unknown builds: see [Carl Mod server builds](#carl-mod-server-builds). |
 | `PlayerEvents.ChangingRole` / `ChangedRole` | approximated | `PlayerRoleManager.ServerSetRole`; cancellation and `NewRole`/`ChangeReason`/`SpawnFlags` changes apply as in official, also on death (`ChangeReason.Died`: the player keeps the old role at 0 HP, or gets the new role). Carl Mod sends the role to clients on the next frame, so `ChangedRole` runs before clients receive it. |
 | `PlayerEvents.Cuffing` / `Cuffed` / `Uncuffing` / `Uncuffed` | supported | `DisarmingHandlers.ServerProcessDisarmMessage`. An SCP releasing a target raises `Uncuffing` with `IsAllowed = false` and `CanUnDetainAsScp = false` and is always refused; the fork then resends the cuff list to that SCP. |
-| `PlayerEvents.ReceivingLoadout` / `ReceivedLoadout` | supported | `InventoryItemProvider.ServerGrantLoadout`. As in official, `InventoryReset` changes are ignored. The fork's deathmatch loadout hook still runs for roles with a defined inventory. |
+| `PlayerEvents.ReceivingLoadout` / `ReceivedLoadout` | supported | `InventoryItemProvider.ServerGrantLoadout`. As in official, `InventoryReset` changes are ignored. On the deathmatch build its fun-mode loadout hook still runs for roles with a defined inventory. |
 | `PlayerEvents.Spawning` / `Spawned` | supported | The fork positions players from an anonymous `PlayerRoleManager.OnRoleChanged` handler in `RoleSpawnpointManager`. It runs for every role change after the `None` role a player starts with, including the round-start assignment; only roles with a spawnpoint handler raise the events, as in official. |
 | `PlayerEvents.Jumped` | approximated | `FpcMotor.UpdateGrounded` when the server simulates a requested jump (SCP-939 lunges included). No jump multiplier: `JumpStrength` is the role's jump speed. There is no server-forced jump. |
 | `PlayerEvents.MovementStateChanged` | supported | `FpcSyncData.TryApply` when a client movement message changes the state. |
@@ -280,7 +316,7 @@ and leaves the game method untouched otherwise.
 | `PlayerEvents.DetectedByScp1344` | absent | No SCP-1344. |
 | `ServerEvents.PickupCreated` / `PickupDestroyed` | supported | Raised by the `Pickup` wrapper from `ItemPickupBase.OnPickupAdded`/`OnPickupDestroyed` (pickup `Start`/`OnDestroy`). |
 | `ServerEvents.ItemSpawning` / `ItemSpawned` | approximated | `ItemDistributor.CreatePickup`. Raised before the pickup is instantiated (official instantiates first): a denied spawn creates nothing and a changed `ItemType` is spawned instead. |
-| `ServerEvents.ProjectileExploding` | supported | `EffectGrenade.ServerFuseEnd` (explosive, flash, SCP-018) and `Scp2176Projectile.ServerFuseEnd` before it shatters. `Player`/`Position` changes are applied. |
+| `ServerEvents.ProjectileExploding` | supported | `EffectGrenade.ServerFuseEnd` (explosive, flash, SCP-018) and `Scp2176Projectile.ServerFuseEnd` before it shatters (on a build whose SCP-2176 has no own `ServerFuseEnd`, from `EffectGrenade.ServerFuseEnd`). `Player`/`Position` changes are applied. |
 | `ServerEvents.ProjectileExploded` | supported | Postfix of `EffectGrenade.ServerFuseEnd`, after the explosion (for SCP-2176 after it shattered). |
 | `ServerEvents.ExplosionSpawning` / `ExplosionSpawned` | approximated | `ExplosionGrenade.Explode` (grenades, SCP-018, disruptor, jailbird, pink candy). The `ExplosionType` argument is removed: the fork's explosions carry no type. `Position`, `Settings`, `Player` and `DestroyDoors` changes are applied. |
 
@@ -388,9 +424,10 @@ the events has subscribers; otherwise the game method runs untouched. Sequence e
 
 Carl Mod has the SL 13.x round flow: `RoundSummary` checks the round from a MEC coroutine, `RespawnManager`
 selects one of two waves (`SpawnableTeamType.NineTailedFox` / `ChaosInsurgency`) on a single shared timer and
-spawns it in the same frame, respawn tokens are a zero-sum share between both teams, and CASSIE is
-`NineTailedFoxAnnouncer` fed by `RespawnEffectsController.PlayCassieAnnouncement` RPCs. CarlModExtras adds a
-`deathmatch` config (with a timed "fun mode") that blocks natural round ending and respawns dead players directly.
+spawns it after its entry animation (the deathmatch build spawns it in the same frame), respawn tokens are a zero-sum
+share between both teams, and CASSIE is `NineTailedFoxAnnouncer` fed by `RespawnEffectsController.PlayCassieAnnouncement`
+RPCs. On the deathmatch build, CarlModExtras adds a `deathmatch` config (with a timed "fun mode") that blocks natural
+round ending and respawns dead players directly.
 Patches live in `src/LabApi/Events/Patches/Round/` (namespace `LabApi.Events.Patches.Rounds`).
 
 ### Events
@@ -401,11 +438,11 @@ Patches live in `src/LabApi/Events/Patches/Round/` (namespace `LabApi.Events.Pat
 | `ServerEvents.RoundStarting` | supported | Prefix of `CharacterClassManager.ForceRoundStart`; cancelling returns `false`. |
 | `ServerEvents.RoundStarted` | supported | Host `Init` coroutine right after `NetworkRoundStarted = true`, before roles are assigned. Exactly once per round: the fork's `CharacterClassManager.OnRoundStarted` also fires from the `RpcRoundStarted` receive path and is not used. |
 | `ServerEvents.RoundRestarted` | supported | Prefix of `RoundRestart.InitiateRoundRestart` (server only). |
-| `ServerEvents.RoundEndingConditionsCheck` | approximated | The `RoundSummary` coroutine is replaced by an equivalent that keeps the fork rules: checked every 2.5 s after a 15 s grace, only when the kill count changed since the last check, ends at 30 min (overtime). A vetoed end is re-checked on the next cycle without waiting for a kill. With `deathmatch` enabled the check runs every 2.5 s only while this event has subscribers and starts with `CanEnd = false`; setting it to `true` ends the deathmatch round normally. `RoundLock` and `KeepRoundOnOne` skip the check as officially. |
+| `ServerEvents.RoundEndingConditionsCheck` | approximated | The `RoundSummary` coroutine is replaced by an equivalent that keeps the fork rules: checked every 2.5 s after a 15 s grace, only when the kill count changed since the last check, ends at 30 min (overtime). A vetoed end is re-checked on the next cycle without waiting for a kill. On the deathmatch build with `deathmatch` enabled the check runs every 2.5 s only while this event has subscribers and starts with `CanEnd = false`; setting it to `true` ends the deathmatch round normally. `RoundLock` and `KeepRoundOnOne` skip the check as officially. |
 | `ServerEvents.RoundEnding` | supported | After the conditions check, with the fork's leading-team rules (no flamingos). Cancelling keeps the round running and re-checks on the next cycle. `LeadingTeam` is applied. |
 | `ServerEvents.RoundEnded` | supported | 1.5 s after `RoundEnding`, before the summary RPC; `ShowSummary = false` skips the summary screen. |
-| `ServerEvents.WaveTeamSelecting` / `WaveTeamSelected` | approximated | At `RespawnManager.Update` team selection (replaces the `DmFun.ChooseTeam` call), also from `RespawnWave.InitiateRespawn`. `Wave` is the fork's `SpawnableTeamHandlerBase` (use `RespawnWave.Base`). Cancelling restarts the respawn cooldown instead of retrying every frame. Not raised by `InstantRespawn` / RA force spawns (as officially). |
-| `ServerEvents.WaveRespawning` / `WaveRespawned` | supported | `RespawnManager.Spawn` is replaced with the same steps while either event has subscribers. `Roles` edits are applied; cancelling spawns nobody and keeps tokens. Not raised when nobody can spawn (for example a forced spawn without spectators), as officially. Deathmatch direct respawns (`DmDirectRespawn`, not a wave) do not raise them. |
+| `ServerEvents.WaveTeamSelecting` / `WaveTeamSelected` | approximated | At `RespawnManager.Update` team selection, right after the game picks the team (`RespawnTokensManager.DominatingTeam`, or `DmFun.ChooseTeam` on the deathmatch build), also from `RespawnWave.InitiateRespawn`. `Wave` is the fork's `SpawnableTeamHandlerBase` (use `RespawnWave.Base`). Cancelling restarts the respawn cooldown instead of retrying every frame. Not raised by `InstantRespawn` / RA force spawns (as officially). |
+| `ServerEvents.WaveRespawning` / `WaveRespawned` | supported | `RespawnManager.Spawn` is replaced with the same steps while either event has subscribers. `Roles` edits are applied; cancelling spawns nobody and keeps tokens. Not raised when nobody can spawn (for example a forced spawn without spectators), as officially. The deathmatch build's direct respawns (`DmDirectRespawn`, not a wave) do not raise them. |
 | `ServerEvents.CassieAnnouncing` / `CassieAnnounced` | supported | Around `RespawnEffectsController.PlayCassieAnnouncement` (the LabAPI 1.0 site; SL 14.2.7 no longer raises them). Covers every server announcement, including glitched SCP terminations and MTF entrances. `CustomSubtitles` is sent in the SL 13.x translated format (`subtitle<size=0> words </size><split>`) with subtitles on. |
 | `ServerEvents.CassieQueuingScpTermination` / `CassieQueuedScpTermination` | supported | Prefix of `NineTailedFoxAnnouncer.AnnounceScpTermination`, only when a new termination is queued; deaths merged into a waiting announcement (same text) raise nothing. |
 | `ServerEvents.LczDecontaminationAnnounced` | supported | After `DecontaminationController.UpdateTime` advances a non-final phase. |
@@ -422,7 +459,7 @@ Patches live in `src/LabApi/Events/Patches/Round/` (namespace `LabApi.Events.Pat
 
 | Member | State | Notes |
 | --- | --- | --- |
-| `Round` | supported | `IsRoundEnded` reads `RoundSummary._roundEnded`. `End(force)` works through the replaced round coroutine (the fork's own `ForceEnd` would stall the round). `CanRoundEnd` is also `false` while `deathmatch` is enabled. |
+| `Round` | supported | `IsRoundEnded` reads `RoundSummary._roundEnded`. `End(force)` works through the replaced round coroutine (the fork's own `ForceEnd` would stall the round). `CanRoundEnd` is also `false` while `deathmatch` is enabled on the deathmatch build. |
 | `Round.ExtraTargets` | absent | No SCP target counter. `ScpTargetsAmount` counts Foundation staff and enemies only. |
 | `Announcer` / obsolete `Cassie` | approximated | Backed by `NineTailedFoxAnnouncer`. `IsSpeaking` reads the host's local queue. `AllLines` is `NineTailedFoxAnnouncer.VoiceLine[]`; `CollectionNames`/`IsValid` use voice line names. `CalculateDuration(string, bool, float)` is the fork's calculation (not obsolete). `Message`: `priority` ignored (clients play in arrival order), `glitchScale` adds `.G`/`JAM_` words with the official chances (doubled after detonation), custom subtitles as in `CassieAnnouncing`. `ConvertNumber` uses the fork's number words. |
 | `Announcer.LineDatabase`, `Message(CassieTtsPayload, ...)`, `CalculateDuration(..., CassiePlaybackModifiers ...)` | absent | No 14.2 CASSIE line database, payloads or playback modifiers. |

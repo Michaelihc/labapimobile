@@ -30,6 +30,12 @@ public static class PatchManager
     public static Dictionary<Type, string> FailedPatches { get; } = [];
 
     /// <summary>
+    /// Gets the patch classes that were not applied because this server build lacks their target or has a different
+    /// native body than the one they were written for, keyed by type, with the reason.
+    /// </summary>
+    public static Dictionary<Type, string> SkippedPatches { get; } = [];
+
+    /// <summary>
     /// Gets the number of patch classes that applied successfully.
     /// </summary>
     public static int AppliedPatchCount { get; private set; }
@@ -51,6 +57,7 @@ public static class PatchManager
 
         Applied = true;
         Stopwatch stopwatch = Stopwatch.StartNew();
+        Logger.Info($"{LoggerPrefix} Game build: {CarlModDeathmatch.Describe()}.");
 
         foreach (Type type in AccessTools.GetTypesFromAssembly(typeof(PatchManager).Assembly))
         {
@@ -61,8 +68,12 @@ public static class PatchManager
 
             try
             {
-                Harmony.CreateClassProcessor(type).Patch();
-                AppliedPatchCount++;
+                // A class whose Prepare declines (a build-specific alternative, or a skip recorded by Skip) patches nothing.
+                List<System.Reflection.MethodInfo>? replacements = Harmony.CreateClassProcessor(type).Patch();
+                if (replacements is { Count: > 0 })
+                {
+                    AppliedPatchCount++;
+                }
             }
             catch (Exception e)
             {
@@ -83,6 +94,22 @@ public static class PatchManager
         }
 
         stopwatch.Stop();
-        Logger.Info($"{LoggerPrefix} Applied {AppliedPatchCount} patch classes in {stopwatch.ElapsedMilliseconds} ms ({FailedPatches.Count} failed)");
+        Logger.Info($"{LoggerPrefix} Applied {AppliedPatchCount} patch classes in {stopwatch.ElapsedMilliseconds} ms ({FailedPatches.Count} failed, {SkippedPatches.Count} skipped for this server build)");
+    }
+
+    /// <summary>
+    /// Records and logs a patch class that is not applied on this server build. Called from a patch's <c>Prepare</c>.
+    /// </summary>
+    /// <param name="patch">The patch class.</param>
+    /// <param name="reason">What differs and which feature is unavailable.</param>
+    internal static void Skip(Type patch, string reason)
+    {
+        if (SkippedPatches.ContainsKey(patch))
+        {
+            return;
+        }
+
+        SkippedPatches[patch] = reason;
+        Logger.Warn($"{LoggerPrefix} {patch.Name} not applied: {reason}");
     }
 }

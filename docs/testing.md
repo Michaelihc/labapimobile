@@ -70,6 +70,12 @@ command also logs a harmless `Error in server console: Error while sending messa
 
 Port 7791 only; other ports belong to other test runs.
 
+The server copy is made from `-SourceDir` (default `.runtime\server-original`, the build with the deathmatch module).
+Patch changes are tested on both 0.0.4 builds; for the official server distribution pass
+`-SourceDir .runtime\server-official-004 -ServerDir <new copy>` (see AGENTS.md for where it comes from). With
+`-CommandSession`, LabAPI's own log lines do not reach the Unity log; a test plugin can read
+`PatchManager.AppliedPatchCount`, `FailedPatches` and `SkippedPatches` instead.
+
 ## Start the emulator and the client
 
 ```powershell

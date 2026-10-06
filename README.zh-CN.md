@@ -8,15 +8,16 @@
 
 ## 当前状态
 
-- 适用于 Windows 版 Carl Mod 专用服务端，游戏版本 0.0.4。
-- 包装类（wrapper）、事件参数和事件与官方 LabAPI 1.1.7 一致。每个事件都由一个 Harmony 补丁在与官方调用点等价的位置触发；全部 187 个补丁类在启动时应用，没有失败。
+- 适用于 Windows 版 Carl Mod 专用服务端，游戏版本 0.0.4。同一个 `LabApi.dll` 支持并已测试两个 0.0.4 服务端版本：官方发布的服务端，以及带死斗（deathmatch）模块（`CarlModExtras.dll`）的版本。两者的差异见 [Carl Mod 服务端版本](docs/compatibility.md#carl-mod-server-builds)。
+- 尚未在 Carl Mod 0.0.5 上测试。LabAPI-Mobile 会识别它不认识的游戏代码：受影响的补丁不会应用（日志会逐个列出补丁及其失去的事件），游戏自身的代码照常运行；伤害和死亡事件仍会触发。
+- 包装类（wrapper）、事件参数和事件与官方 LabAPI 1.1.7 一致。每个事件都由一个 Harmony 补丁在与官方调用点等价的位置触发；在两个 0.0.4 版本上，187 个补丁类都在启动时应用，没有失败。
 - [docs/compatibility.md](docs/compatibility.md) 列出了在 Carl Mod 上经过适配、行为近似或缺失的每个包装类、成员和事件（没有 SCP-3114，没有扬声器和文本玩具，使用 `KeycardPermissions` 等分支版本的类型……）。未列出的部分与官方 LabAPI 行为相同。
 - 事件已在 Android 模拟器中运行的原版 Carl Mod 0.0.4 安卓客户端上验证，由 [EventProbe](tools/EventProbe/README.md) 记录每次事件调用。模拟器中没有触屏控件的操作，由 EventProbe 的服务端替代命令触发。测试环境见 [docs/testing.md](docs/testing.md)。
 - 帧率目前只在模拟器中测量过，尚未在真机上测量。
 
 ## 在服务器上安装
 
-要求：Windows 版 Carl Mod 专用服务端（已在游戏版本 0.0.4 上测试），以及安装器所需的 .NET Framework 4.6.2 或更高版本（Windows 10、Windows 11 和 Windows Server 2016 及以上版本自带）。
+要求：Windows 版 Carl Mod 专用服务端（已在游戏版本 0.0.4 上测试，包括官方发布的服务端和带死斗模块的版本），以及安装器所需的 .NET Framework 4.6.2 或更高版本（Windows 10、Windows 11 和 Windows Server 2016 及以上版本自带）。
 
 1. 停止服务器，把发布包 `LabApiMobile-<version>.zip` 解压到任意文件夹。
 2. 以服务器文件夹（包含 `Carl Mod.exe` 的文件夹）为参数运行安装器：
@@ -25,8 +26,8 @@
    LabApiMobile.Installer.exe "C:\path\to\server"
    ```
 
-   安装器会显示检测到的游戏版本；如果 `Assembly-CSharp.dll` 无法识别为 Carl Mod 服务端，它会拒绝修改，对未测试过的游戏版本会给出警告。它把 `Carl Mod_Data\Managed\Assembly-CSharp.dll` 备份为 `Assembly-CSharp.dll.labapi-original`，把 `LabApi.dll` 和 `0Harmony.dll` 复制到 `Carl Mod_Data\Managed`（若已存在同名文件，例如其他模组的 `0Harmony.dll`，会保留为 `<文件名>.labapi-original`），并在 `ServerStatic.Awake` 中加入一次 `PluginLoader.Initialize()` 调用。其余改动都在运行时通过 Harmony 应用。
-3. 在服务器自己的文件夹中启动服务器。日志中会出现 `[LabApi] [PATCHES] Applied ... (0 failed)` 以及已加载的插件。
+   安装器会显示检测到的游戏版本和服务端版本；如果 `Assembly-CSharp.dll` 无法识别为 Carl Mod 服务端，它会拒绝修改，对未测试过的游戏版本会给出警告。它把 `Carl Mod_Data\Managed\Assembly-CSharp.dll` 备份为 `Assembly-CSharp.dll.labapi-original`，把 `LabApi.dll` 和 `0Harmony.dll` 复制到 `Carl Mod_Data\Managed`（若已存在同名文件，例如其他模组的 `0Harmony.dll`，会保留为 `<文件名>.labapi-original`），并在 `ServerStatic.Awake` 中加入一次 `PluginLoader.Initialize()` 调用。其余改动都在运行时通过 Harmony 应用。
+3. 在服务器自己的文件夹中启动服务器。日志中会出现 `[LabApi] [PATCHES] Applied ... (0 failed, 0 skipped for this server build)` 以及已加载的插件。在 LabAPI-Mobile 不认识的游戏版本上，`[PATCHES] ... not applied` 警告会列出每个未应用的补丁及其失去的事件。
 
 更新 LabAPI-Mobile 或游戏更新后，再运行一次安装器即可；它总是基于原始文件打补丁。
 
@@ -78,7 +79,7 @@ LabAPI-Mobile 的文件保存在 `<AppData>\SCP Secret Laboratory\LabAPI-Mobile\
 
 ## 从源码构建
 
-要求：.NET SDK（8 或更高版本）、Python 3，以及你自己的 Carl Mod 专用服务端 ZIP。本仓库不包含游戏文件；各项目针对解压到 `.runtime\server-original` 的服务端 `Carl Mod_Data\Managed` 程序集编译：
+要求：.NET SDK（8 或更高版本）、Python 3，以及你自己的 Carl Mod 专用服务端 ZIP。本仓库不包含游戏文件；各项目针对解压到 `.runtime\server-original` 的服务端 `Carl Mod_Data\Managed` 程序集编译。两个 0.0.4 版本都可以用来编译：`LabApi.dll` 不引用 `CarlModExtras`，编译结果在两个版本上都能运行：
 
 ```powershell
 python tools/extract-server.py --zip <path to the server ZIP>   # 只需一次：解压到 .runtime\server-original

@@ -1,4 +1,3 @@
-using CarlModExtras;
 using CommandSystem;
 using HarmonyLib;
 using LabApi.Events.Arguments.ServerEvents;
@@ -9,6 +8,7 @@ using RemoteAdmin;
 using RemoteAdmin.Communication;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 
 namespace LabApi.Events.Patches.Admin;
@@ -19,14 +19,36 @@ namespace LabApi.Events.Patches.Admin;
 /// </summary>
 /// <remarks>
 /// With subscribers the fork query handler runs here with the events inserted where official SL raises them;
-/// without subscribers the fork handler runs untouched. Carl Mod's "help" chat and "wiki" queries are handled
-/// first, as in the fork, and never reach the events.
+/// without subscribers the fork handler runs untouched. On the build with the deathmatch module, its "help" chat and
+/// "wiki" queries are handled first, as in that build, and never reach the events. Applied only when the native body
+/// is one of the known Carl Mod 0.0.4 bodies.
 /// </remarks>
 // Official: RemoteAdmin/CommandProcessor.cs ProcessQuery and ProcessAdminChat
 [HarmonyPatch(typeof(CommandProcessor), nameof(CommandProcessor.ProcessQuery))]
 internal static class RemoteAdminQueryPatch
 {
+    // CommandProcessor.ProcessQuery without and with the deathmatch module's DmFun.HandleHelpChat / HandleWikiGrant calls.
+    private const string StandardBody = "f438eb1072140469";
+    private const string DeathmatchBody = "34dd4e9fe7cb467f";
+
     private const string AdminChatCancelled = "A server plugin cancelled the message.";
+
+    private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(CommandProcessor), nameof(CommandProcessor.ProcessQuery));
+
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+
+    private static readonly string? Fingerprint;
+
+    private static bool Prepare()
+    {
+        if (Variant == BodyVariant.Standard || (Variant == BodyVariant.Deathmatch && CarlModDeathmatch.HasCommandHooks))
+        {
+            return true;
+        }
+
+        PatchManager.Skip(typeof(RemoteAdminQueryPatch), NativeBody.UnknownBody(Target, Fingerprint, "Remote Admin CommandExecuting / CommandExecuted and SendingAdminChat / SentAdminChat are not raised."));
+        return false;
+    }
 
     private static bool Prefix(string q, CommandSender sender, ref string __result)
     {
@@ -41,7 +63,7 @@ internal static class RemoteAdminQueryPatch
             return true;
         }
 
-        if (DmFun.HandleHelpChat(q, sender) || DmFun.HandleWikiGrant(q, sender))
+        if (Variant == BodyVariant.Deathmatch && CarlModDeathmatch.HandleRemoteAdminQuery(q, sender))
         {
             __result = null!;
             return false;
@@ -281,12 +303,34 @@ internal static class ConsoleCommandPatch
 /// Raises CommandExecuting / CommandExecuted for client console (dot) commands.
 /// </summary>
 /// <remarks>
-/// Carl Mod's ".s" chat command is handled first, as in the fork, and never raises the events.
+/// On the build with the deathmatch module, its ".s" chat command is handled first, as in that build, and never raises
+/// the events. Applied only when the native body is one of the known Carl Mod 0.0.4 bodies.
 /// </remarks>
 // Official: RemoteAdmin/QueryProcessor.cs ProcessGameConsoleQuery
 [HarmonyPatch(typeof(QueryProcessor), nameof(QueryProcessor.ProcessGameConsoleQuery))]
 internal static class ClientCommandPatch
 {
+    // QueryProcessor.ProcessGameConsoleQuery without and with the deathmatch module's DmFun.HandleDotCommand call.
+    private const string StandardBody = "195ef6a3beee3007";
+    private const string DeathmatchBody = "065d8321356d6fbb";
+
+    private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(QueryProcessor), nameof(QueryProcessor.ProcessGameConsoleQuery));
+
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+
+    private static readonly string? Fingerprint;
+
+    private static bool Prepare()
+    {
+        if (Variant == BodyVariant.Standard || (Variant == BodyVariant.Deathmatch && CarlModDeathmatch.HasCommandHooks))
+        {
+            return true;
+        }
+
+        PatchManager.Skip(typeof(ClientCommandPatch), NativeBody.UnknownBody(Target, Fingerprint, "client console CommandExecuting / CommandExecuted are not raised."));
+        return false;
+    }
+
     private static bool Prefix(QueryProcessor __instance, string query)
     {
         if (!ServerEvents.HasCommandExecuting && !ServerEvents.HasCommandExecuted)
@@ -294,7 +338,7 @@ internal static class ClientCommandPatch
             return true;
         }
 
-        if (DmFun.HandleDotCommand(__instance._sender, query))
+        if (Variant == BodyVariant.Deathmatch && CarlModDeathmatch.HandleDotCommand(__instance._sender, query))
         {
             return false;
         }
