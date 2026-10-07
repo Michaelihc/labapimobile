@@ -26,6 +26,7 @@ param(
     [int]$ConsolePort = 5554,
     [string]$Serial,
     [switch]$NoWindow,
+    [switch]$EnableAudio,
     [switch]$Snapshot,
     [int]$TimeoutSec = 300
 )
@@ -51,7 +52,8 @@ New-Item -ItemType Directory -Force $logDir | Out-Null
 $log = Join-Path $logDir "emulator-$ConsolePort.log"
 
 $emuArgs = @('-avd', $AvdName, '-port', $ConsolePort, '-accel', 'on', '-gpu', 'host',
-             '-no-boot-anim', '-no-audio', '-netdelay', 'none', '-netspeed', 'full')
+             '-no-boot-anim', '-netdelay', 'none', '-netspeed', 'full')
+if (-not $EnableAudio) { $emuArgs += '-no-audio' }
 if (-not $Snapshot) { $emuArgs += '-no-snapshot' }
 if ($NoWindow) { $emuArgs += '-no-window' }
 

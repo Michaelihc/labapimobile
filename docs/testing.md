@@ -100,6 +100,9 @@ spectator controls. Use `roundrestart` and then `forcestart` to spawn it.
 Android "Viewing full screen" hint as seen; on a fresh AVD that hint otherwise covers the game's first launch and
 swallows the `Connect-Client.ps1` taps.
 
+For audio playback checks, start the emulator with `-EnableAudio`. The default disables its audio backend;
+stop an already running emulator before changing this option.
+
 ## Two clients
 
 Multiplayer interactions (spectating, cuffing, SCP attacks on a player) need a second client. An AVD can run only
