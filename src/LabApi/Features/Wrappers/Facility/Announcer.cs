@@ -157,7 +157,7 @@ public static class Announcer
     /// Call on the Unity main thread.
     /// </summary>
     /// <returns>Whether the announcement was sent to a ready connection observing the announcer.</returns>
-    public static bool MessageTo(Player player, string message, string customSubtitles = "", bool playBackground = true, float glitchScale = 1f)
+    public static bool MessageTo(Player player, string message, bool playBackground = true, float glitchScale = 1f)
     {
         if (player == null)
         {
@@ -178,17 +178,11 @@ public static class Announcer
             }
 
             message = Glitchify(message, glitchScale);
-            bool translated = !string.IsNullOrEmpty(customSubtitles);
-            if (translated)
-            {
-                message = CassieAnnouncementPatch.ComposeTranslated(message, customSubtitles);
-            }
-
             using NetworkWriterPooled writer = NetworkWriterPool.Get();
             writer.WriteString(message);
             writer.WriteBool(false);
             writer.WriteBool(playBackground);
-            writer.WriteBool(translated);
+            writer.WriteBool(false);
             // RespawnEffectsController.RpcCassieAnnouncement: the SL 13.x wire signature on all Carl Mod builds.
             connection.Send(new RpcMessage
             {

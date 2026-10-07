@@ -53,7 +53,7 @@ public sealed class ProbeCommand : ICommand
             case "cassie" when arguments.Count > 2 && TryGetPlayer(arguments.At(1), out Player? recipient):
             {
                 string words = string.Join(" ", arguments.Array!, arguments.Offset + 2, arguments.Count - 2);
-                bool sent = Announcer.MessageTo(recipient!, words, words, glitchScale: 0f);
+                bool sent = Announcer.MessageTo(recipient!, words, glitchScale: 0f);
                 response = $"Private CASSIE to #{recipient!.PlayerId}: sent={sent}, words={words}";
                 LabApi.Features.Console.Logger.Raw("[PROBE] " + response, ConsoleColor.Cyan);
                 return sent;

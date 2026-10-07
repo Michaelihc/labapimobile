@@ -87,7 +87,7 @@ internal static class CassieAnnouncementPatch
         ServerEvents.OnCassieAnnounced(new CassieAnnouncedEventArgs(words, makeHold, makeNoise, customAnnouncement, subtitles));
     }
 
-    internal static string ComposeTranslated(string words, string subtitles)
+    private static string ComposeTranslated(string words, string subtitles)
     {
         string[] lines = words.Split('\n');
         string[] translations = subtitles.Split('\n');
