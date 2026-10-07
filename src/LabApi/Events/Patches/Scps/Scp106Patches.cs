@@ -6,6 +6,7 @@ using LabApi.Events.Handlers;
 using Logger = LabApi.Features.Console.Logger;
 using MapGeneration;
 using Mirror;
+using PlayerRoles;
 using PlayerRoles.FirstPersonControl;
 using PlayerRoles.PlayableScps.Scp106;
 using PlayerStatsSystem;
@@ -19,18 +20,48 @@ using UnityEngine;
 namespace LabApi.Events.Patches.Scps;
 
 // Official: PlayerRoles/PlayableScps/Scp106/Scp106Attack.cs ServerShoot
-// In the fork a single hit damages and captures the target; the event gates the whole hit.
+// In the fork a single hit damages and captures the target; the event gates the whole hit. Carl Mod 0.0.5 checks the
+// backtracked live positions instead of the client-claimed ones, sends a miss cooldown when the damage is refused, and sends
+// the hit cooldown after the sinkhole cooldown change (its cooldown message now carries both). Applied only when the native
+// body is one of the known Carl Mod bodies.
 [HarmonyPatch(typeof(Scp106Attack), nameof(Scp106Attack.ServerShoot))]
 internal static class Scp106TeleportingPlayerPatch
 {
+    // Scp106Attack.ServerShoot of both Carl Mod 0.0.4 builds, and of 0.0.5.
+    private const string CarlMod004Body = "6025b65fae87c1e0";
+    private const string Version005Body = "65544d2b24f96ab4";
+
     private static readonly AccessTools.FieldRef<Action<ReferenceHub>> OnPlayerTeleported =
         AccessTools.StaticFieldRefAccess<Action<ReferenceHub>>(AccessTools.Field(typeof(Scp106Attack), "OnPlayerTeleported"));
+
+    private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(Scp106Attack), nameof(Scp106Attack.ServerShoot));
+
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, CarlMod004Body, Version005Body, out Fingerprint);
+
+    private static readonly string? Fingerprint;
+
+    private static bool Prepare()
+    {
+        if (Variant != BodyVariant.Unknown)
+        {
+            return true;
+        }
+
+        PatchManager.Skip(typeof(Scp106TeleportingPlayerPatch), NativeBody.UnknownBody(Target, Fingerprint, "Scp106 TeleportingPlayer / TeleportedPlayer are not raised."));
+        return false;
+    }
 
     private static bool Prefix(Scp106Attack __instance)
     {
         if (!Scp106Events.HasTeleportingPlayer && !Scp106Events.HasTeleportedPlayer)
         {
             return true;
+        }
+
+        if (Variant == BodyVariant.Version005)
+        {
+            ShootVersion005(__instance);
+            return false;
         }
 
         ReferenceHub target = __instance._targetHub;
@@ -91,6 +122,73 @@ internal static class Scp106TeleportingPlayerPatch
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The Carl Mod 0.0.5 body with the events.
+    /// </summary>
+    private static void ShootVersion005(Scp106Attack attack)
+    {
+        ReferenceHub target = attack._targetHub;
+        using (new FpcBacktracker(target, attack._targetPosition, 0.35f))
+        {
+            // ServerProcessCmd only shoots at a HumanRole target.
+            Vector3 targetPosition = ((HumanRole)target.roleManager.CurrentRole).FpcModule.Position;
+            Vector3 ownerPosition = attack.ScpRole.FpcModule.Position;
+            Vector3 vector = targetPosition - ownerPosition;
+            float sqrMagnitude = vector.sqrMagnitude;
+            if (sqrMagnitude > attack._maxRangeSqr)
+            {
+                attack.SendCooldown(attack._missCooldown);
+                return;
+            }
+
+            Vector3 forward = attack.OwnerCam.forward;
+            forward.y = 0f;
+            vector.y = 0f;
+            if (Physics.Linecast(ownerPosition, targetPosition, MicroHIDItem.WallMask))
+            {
+                attack.SendCooldown(attack._missCooldown);
+                return;
+            }
+
+            if (attack._dotOverDistance.Evaluate(sqrMagnitude) > Vector3.Dot(vector.normalized, forward.normalized))
+            {
+                attack.SendCooldown(attack._missCooldown);
+                return;
+            }
+
+            if (Scp106Events.HasTeleportingPlayer)
+            {
+                Scp106TeleportingPlayerEvent e = new(attack.Owner, target);
+                Scp106Events.OnTeleportingPlayer(e);
+                if (!e.IsAllowed)
+                {
+                    return;
+                }
+            }
+
+            ScpDamageHandler handler = new(attack.Owner, attack._damage, DeathTranslations.PocketDecay);
+            if (!target.playerStats.DealDamage(handler))
+            {
+                attack.SendCooldown(attack._missCooldown);
+                return;
+            }
+        }
+
+        Scp106VigorChangePatch.SetVigor(attack.Vigor, attack.Vigor.VigorAmount + 0.3f);
+        attack.ReduceSinkholeCooldown();
+        attack.SendCooldown(attack._hitCooldown);
+        Hitmarker.SendHitmarker(attack.Owner, 1f);
+        OnPlayerTeleported()?.Invoke(target);
+        PlayerEffectsController effects = target.playerEffectsController;
+        effects.EnableEffect<Traumatized>(180f);
+        effects.EnableEffect<Corroding>();
+
+        if (Scp106Events.HasTeleportedPlayer)
+        {
+            Scp106Events.OnTeleportedPlayer(new Scp106TeleportedPlayerEvent(attack.Owner, target));
+        }
     }
 }
 

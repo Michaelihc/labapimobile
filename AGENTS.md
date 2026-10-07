@@ -22,7 +22,8 @@ IL2CPP and is never patched. Plugins may use only content the stock Carl Mod cli
   `0Harmony.dll`, `INSTALL.txt`, `NOTICE.txt`, licence texts) in `dist/`.
 - `README.md` / `README.zh-CN.md` — English and Simplified Chinese READMEs; keep both in sync.
 - `.runtime/` (ignored) — extracted servers (`server-original`: the 0.0.4 build with the deathmatch module;
-  `server-official-004`: the official 0.0.4 server distribution), test servers, logs, captures.
+  `server-official-004`: the official 0.0.4 server distribution; `server-original-005`: Carl Mod 0.0.5), test servers,
+  logs, captures.
 - `dist/` (ignored) — package output.
 
 The ProjectMER port lives in its own repository (https://github.com/Michaelihc/projectmer-mobile); a local
@@ -30,8 +31,9 @@ checkout may sit next to this one as `../projectmer-mobile/`. It builds against 
 
 ## Reference inputs
 
-- `.refereces/` (ignored, not published) contains the supplied server ZIP and two APKs. Treat them as original reference inputs;
-  write patched assemblies, rebuilt APKs and extracted files to separate output directories.
+- `.refereces/` (ignored, not published) contains the supplied server ZIPs (0.0.4 and `CarlMod_0.0.5_*.zip`) and two APKs
+  (0.0.4 only; no 0.0.5 client is available). Treat them as original reference inputs; write patched assemblies, rebuilt
+  APKs and extracted files to separate output directories.
 - `.refereces/scpsl-metarepo/` is a local junction to a `scpsl-plugins-metarepo` checkout; it is not published.
   It is external reference material. Do not edit through the junction without explicit authorization.
   Read its `AGENTS.md` and `.references/AGENTS.md` before researching APIs or native behavior.
@@ -54,11 +56,15 @@ Use the Carl Mod server assemblies to verify implementation signatures; the buil
 SL metarepo do not establish compatibility. Client C# exports in the analysis workspace are IL2CPP metadata
 views with placeholder method bodies; inspect native code to establish client behavior.
 
-Two 0.0.4 server builds exist and one `LabApi.dll` must run on both: the official server distribution (no
+Three server builds exist and one `LabApi.dll` must run on all of them: the official 0.0.4 server distribution (no
 `CarlModExtras.dll`; source: the `Carl Mod Server` folder of `CarlMod-Exiled-deployment-full.zip` in the
-`yeeAM-Exiled/CarlMod-Exiled` v1.0.0 release, for local testing only, never committed or republished) and the build
-with the deathmatch module (`CarlModExtras.dll`, `PlayerStats.DmCleanup` and other `Dm*` members). They differ in a few
-method bodies; `docs/compatibility.md` ("Carl Mod server builds") lists what differs. Test changes to patches on both.
+`yeeAM-Exiled/CarlMod-Exiled` v1.0.0 release, for local testing only, never committed or republished), the 0.0.4 build
+with the deathmatch module (`CarlModExtras.dll`, `PlayerStats.DmCleanup` and other `Dm*` members) and Carl Mod 0.0.5
+(`CarlModExtras.dll` without `Dm*` members in Assembly-CSharp, device IDs; its Managed folder also holds the distributor's
+`Assembly-CSharp.dll.pre_*.bak` files, which are not used). They differ in method bodies and members;
+`docs/compatibility.md` ("Carl Mod server builds") lists what differs. Members that only some builds have are bound by
+reflection (`Events/Patches/CarlModBuild.cs`, `CarlModDeathmatch.cs`), never referenced directly: the build compiles
+against 0.0.4, and a missing member breaks the JIT of the calling method. Test changes to patches on all three builds.
 
 ## Porting rules
 
@@ -79,8 +85,9 @@ method bodies; `docs/compatibility.md` ("Carl Mod server builds") lists what dif
   calling method on builds without them); go through `Events/Patches/CarlModDeathmatch.cs`, which binds them by
   reflection.
 - A patch that copies or replaces a native body that differs between builds identifies the target with
-  `NativeBody.Identify` (fingerprints of the standard and the deathmatch body) and, for an unknown body, declines in
-  `Prepare` with `PatchManager.Skip` so the game code keeps running. The skip warning prints the new fingerprint: compare
+  `NativeBody.Identify` (fingerprints of the 0.0.4 standard and deathmatch bodies and of the 0.0.5 body; `nop`
+  instructions do not count) and, for an unknown body, declines in `Prepare` with `PatchManager.Skip` so the game code
+  keeps running. Port each build's body faithfully; do not impose one build's behaviour on another. The skip warning prints the new fingerprint: compare
   the native bodies, update the copy, then add the fingerprint. A patch whose target may be absent resolves it in
   `TargetMethod` and declines in `Prepare` instead of failing.
 
@@ -97,11 +104,16 @@ Mobile clients are the bottleneck: low-end phones render every networked object 
 
 ## Build and run
 
-- `python tools/extract-server.py` extracts the reference server to `.runtime/server-original`.
+- `python tools/extract-server.py` extracts the reference server to `.runtime/server-original`;
+  `python tools/extract-server.py --build 0.0.5` extracts the 0.0.5 ZIP to `.runtime/server-original-005`.
 - `dotnet build src/LabApi/LabApi.csproj -c Release`. Parallel agents add
   `--artifacts-path C:\tmp\labapi-<name>` so their obj/bin folders do not collide.
-- The installer patches a server copy, never `server-original`:
+- The installer patches a server copy, never `server-original`, `server-official-004` or `server-original-005`:
   `dotnet run --project src/Installer -- <server-dir> <dir-with-LabApi.dll-and-0Harmony.dll>`.
+- Three-build tests run on copies of the three pristine servers (`tools\Start-TestServer.ps1 -SourceDir <pristine>
+  -ServerDir <copy> -Port <N> -CommandSession emu`), one port each, with a test plugin that spawns dummies and drives the
+  events; the startup log line `Applied N patch classes ... (F failed, S skipped ...)` must read 187 / 0 / 0 on each. The
+  Android client (0.0.4) cannot join 0.0.5, so 0.0.5 is tested server-side only.
 - Start servers with `-batchmode -nographics -stdout -port<N>` (`-stdout` before `-port`) from the server
   directory, which needs `hoster_policy.txt` containing `gamedir_for_configs: true` so configs stay in
   `<server>/AppData` instead of the user's real `%APPDATA%\SCP Secret Laboratory`. Stop servers by PID.

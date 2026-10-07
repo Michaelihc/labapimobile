@@ -14,9 +14,11 @@ namespace LabApi.Events.Patches;
 /// </summary>
 /// <remarks>
 /// Carl Mod servers that report the same game version are not one build: the official distribution of 0.0.4 and the
-/// build with the deathmatch module differ in a few methods. A fingerprint covers opcodes, operands (members by declaring
-/// type, name and parameter types, branch targets by instruction index) and exception blocks, so it does not depend on
-/// metadata tokens. It is computed once per patch class at startup.
+/// build with the deathmatch module differ in a few methods, and 0.0.5 changes more. A fingerprint covers opcodes, operands
+/// (members by declaring type, name and parameter types, branch targets by instruction index) and exception blocks, so it
+/// does not depend on metadata tokens. <c>nop</c> instructions are left out (they do nothing, and the server distributors'
+/// own assembly patching inserts them), so a body that differs only by them has the same fingerprint. It is computed once
+/// per patch class at startup.
 /// </remarks>
 internal static class NativeBody
 {
@@ -42,28 +44,42 @@ internal static class NativeBody
             return null;
         }
 
+        // Indices count only instructions other than nop; a label on a nop targets the next instruction.
         Dictionary<Label, int> targets = [];
-        for (int i = 0; i < instructions.Count; i++)
+        int index = 0;
+        foreach (CodeInstruction instruction in instructions)
         {
-            foreach (Label label in instructions[i].labels)
+            foreach (Label label in instruction.labels)
             {
-                targets[label] = i;
+                targets[label] = index;
+            }
+
+            if (instruction.opcode != OpCodes.Nop)
+            {
+                index++;
             }
         }
 
         StringBuilder text = new();
+        List<ExceptionBlock> nopBlocks = [];
         foreach (CodeInstruction instruction in instructions)
         {
-            text.Append(instruction.opcode.Name);
-            AppendOperand(text, instruction.operand, targets);
-            foreach (ExceptionBlock block in instruction.blocks)
+            if (instruction.opcode == OpCodes.Nop)
             {
-                text.Append(" {").Append(block.blockType).Append(' ').Append(block.catchType).Append('}');
+                // Exception block boundaries on a nop belong to the next instruction.
+                nopBlocks.AddRange(instruction.blocks);
+                continue;
             }
 
+            text.Append(instruction.opcode.Name);
+            AppendOperand(text, instruction.operand, targets);
+            AppendBlocks(text, nopBlocks);
+            nopBlocks.Clear();
+            AppendBlocks(text, instruction.blocks);
             text.Append('\n');
         }
 
+        AppendBlocks(text, nopBlocks);
         return Hash(text.ToString());
     }
 
@@ -71,11 +87,15 @@ internal static class NativeBody
     /// Identifies which known Carl Mod body a method has.
     /// </summary>
     /// <param name="method">The method.</param>
-    /// <param name="standard">The fingerprint of the body in builds without the deathmatch module (the official distribution).</param>
-    /// <param name="deathmatch">The fingerprint of the body in the build with the deathmatch module.</param>
+    /// <param name="standard">The fingerprint of the body in the official 0.0.4 distribution (no deathmatch module).</param>
+    /// <param name="deathmatch">The fingerprint of the body in the 0.0.4 build with the deathmatch module.</param>
+    /// <param name="version005">
+    /// The fingerprint of the Carl Mod 0.0.5 body when it differs from both 0.0.4 bodies; <see langword="null"/> when 0.0.5 has
+    /// one of them (it is then identified as that variant).
+    /// </param>
     /// <param name="fingerprint">The method's fingerprint, for log messages.</param>
     /// <returns>The variant, or <see cref="BodyVariant.Unknown"/>.</returns>
-    internal static BodyVariant Identify(MethodBase? method, string standard, string deathmatch, out string? fingerprint)
+    internal static BodyVariant Identify(MethodBase? method, string standard, string deathmatch, string? version005, out string? fingerprint)
     {
         fingerprint = Fingerprint(method);
         if (fingerprint == null)
@@ -88,8 +108,24 @@ internal static class NativeBody
             return BodyVariant.Standard;
         }
 
-        return fingerprint == deathmatch ? BodyVariant.Deathmatch : BodyVariant.Unknown;
+        if (fingerprint == deathmatch)
+        {
+            return BodyVariant.Deathmatch;
+        }
+
+        return fingerprint == version005 ? BodyVariant.Version005 : BodyVariant.Unknown;
     }
+
+    /// <summary>
+    /// Identifies which known Carl Mod body a method has, for a method whose body is the same in both 0.0.4 builds.
+    /// </summary>
+    /// <param name="method">The method.</param>
+    /// <param name="carlMod004">The fingerprint of the body in both Carl Mod 0.0.4 builds (identified as <see cref="BodyVariant.Standard"/>).</param>
+    /// <param name="version005">The fingerprint of the Carl Mod 0.0.5 body.</param>
+    /// <param name="fingerprint">The method's fingerprint, for log messages.</param>
+    /// <returns>The variant, or <see cref="BodyVariant.Unknown"/>.</returns>
+    internal static BodyVariant Identify(MethodBase? method, string carlMod004, string version005, out string? fingerprint) =>
+        Identify(method, carlMod004, carlMod004, version005, out fingerprint);
 
     /// <summary>
     /// Builds the skip reason for a patch whose target body is not a known one.
@@ -99,7 +135,7 @@ internal static class NativeBody
     /// <param name="consequence">What is unavailable as a result.</param>
     /// <returns>The reason.</returns>
     internal static string UnknownBody(MethodBase? method, string? fingerprint, string consequence) =>
-        $"{Describe(method)} differs from the Carl Mod 0.0.4 builds LabAPI-Mobile knows (IL {fingerprint ?? "missing or unreadable"}); {consequence}";
+        $"{Describe(method)} differs from the Carl Mod builds LabAPI-Mobile knows (0.0.4, 0.0.5; IL {fingerprint ?? "missing or unreadable"}); {consequence}";
 
     /// <summary>
     /// Computes a fingerprint of a method's raw IL bytes. Only meaningful for one exact assembly, because the bytes contain
@@ -189,6 +225,14 @@ internal static class NativeBody
         }
     }
 
+    private static void AppendBlocks(StringBuilder text, List<ExceptionBlock> blocks)
+    {
+        foreach (ExceptionBlock block in blocks)
+        {
+            text.Append(" {").Append(block.blockType).Append(' ').Append(block.catchType).Append('}');
+        }
+    }
+
     private static void AppendTarget(StringBuilder text, Label label, Dictionary<Label, int> targets) =>
         text.Append(" L").Append(targets.TryGetValue(label, out int index) ? index : -1);
 
@@ -213,9 +257,15 @@ internal enum BodyVariant
     /// <summary>Not a body LabAPI-Mobile knows.</summary>
     Unknown,
 
-    /// <summary>The body of builds without the deathmatch module (the official server distribution).</summary>
+    /// <summary>
+    /// The body of the official 0.0.4 server distribution (no deathmatch module); for a method that is the same in both 0.0.4
+    /// builds, the body of both.
+    /// </summary>
     Standard,
 
-    /// <summary>The body of the build with the deathmatch module.</summary>
+    /// <summary>The body of the 0.0.4 build with the deathmatch module.</summary>
     Deathmatch,
+
+    /// <summary>The body of Carl Mod 0.0.5, where it differs from both 0.0.4 bodies.</summary>
+    Version005,
 }

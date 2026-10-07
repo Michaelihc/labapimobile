@@ -19,15 +19,16 @@ namespace LabApi.Events.Patches.Admin;
 /// </summary>
 /// <remarks>
 /// With subscribers the fork query handler runs here with the events inserted where official SL raises them;
-/// without subscribers the fork handler runs untouched. On the build with the deathmatch module, its "help" chat and
-/// "wiki" queries are handled first, as in that build, and never reach the events. Applied only when the native body
-/// is one of the known Carl Mod 0.0.4 bodies.
+/// without subscribers the fork handler runs untouched. On builds whose handler calls the CarlModExtras module (the 0.0.4
+/// build with the deathmatch module, and 0.0.5), its "help" chat and "wiki" queries are handled first, as in those builds,
+/// and never reach the events. Applied only when the native body is one of the known Carl Mod bodies.
 /// </remarks>
 // Official: RemoteAdmin/CommandProcessor.cs ProcessQuery and ProcessAdminChat
 [HarmonyPatch(typeof(CommandProcessor), nameof(CommandProcessor.ProcessQuery))]
 internal static class RemoteAdminQueryPatch
 {
-    // CommandProcessor.ProcessQuery without and with the deathmatch module's DmFun.HandleHelpChat / HandleWikiGrant calls.
+    // CommandProcessor.ProcessQuery without and with the CarlModExtras DmFun.HandleHelpChat / HandleWikiGrant calls. Carl Mod
+    // 0.0.5 has the body with the calls.
     private const string StandardBody = "f438eb1072140469";
     private const string DeathmatchBody = "34dd4e9fe7cb467f";
 
@@ -35,7 +36,7 @@ internal static class RemoteAdminQueryPatch
 
     private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(CommandProcessor), nameof(CommandProcessor.ProcessQuery));
 
-    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, null, out Fingerprint);
 
     private static readonly string? Fingerprint;
 
@@ -303,20 +304,22 @@ internal static class ConsoleCommandPatch
 /// Raises CommandExecuting / CommandExecuted for client console (dot) commands.
 /// </summary>
 /// <remarks>
-/// On the build with the deathmatch module, its ".s" chat command is handled first, as in that build, and never raises
-/// the events. Applied only when the native body is one of the known Carl Mod 0.0.4 bodies.
+/// On builds whose handler calls the CarlModExtras module (the 0.0.4 build with the deathmatch module, and 0.0.5), its ".s"
+/// chat command is handled first, as in those builds, and never raises the events. Applied only when the native body is one
+/// of the known Carl Mod bodies.
 /// </remarks>
 // Official: RemoteAdmin/QueryProcessor.cs ProcessGameConsoleQuery
 [HarmonyPatch(typeof(QueryProcessor), nameof(QueryProcessor.ProcessGameConsoleQuery))]
 internal static class ClientCommandPatch
 {
-    // QueryProcessor.ProcessGameConsoleQuery without and with the deathmatch module's DmFun.HandleDotCommand call.
+    // QueryProcessor.ProcessGameConsoleQuery without and with the CarlModExtras DmFun.HandleDotCommand call. Carl Mod 0.0.5 has
+    // the body with the call.
     private const string StandardBody = "195ef6a3beee3007";
     private const string DeathmatchBody = "065d8321356d6fbb";
 
     private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(QueryProcessor), nameof(QueryProcessor.ProcessGameConsoleQuery));
 
-    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, null, out Fingerprint);
 
     private static readonly string? Fingerprint;
 

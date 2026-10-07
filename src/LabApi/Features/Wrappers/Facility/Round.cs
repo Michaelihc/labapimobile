@@ -1,5 +1,5 @@
 ﻿using GameCore;
-using LabApi.Events.Patches;
+using LabApi.Events.Patches.Rounds;
 using PlayerRoles;
 using RoundRestarting;
 using System;
@@ -29,13 +29,13 @@ public static class Round
 
     /// <summary>
     /// Gets whether the round can end if there is only 1 team alive remaining.<br/>
-    /// <remarks>IMPORTANT: This does NOT check win conditions! Only whether the round is locked (including the <c>deathmatch</c> mode of Carl Mod builds with the deathmatch module) and if there is a required amount of players.</remarks>
+    /// <remarks>IMPORTANT: This does NOT check win conditions! Only whether the round is locked (including the <c>deathmatch</c> mode of the Carl Mod 0.0.4 build with the deathmatch module) and if there is a required amount of players.</remarks>
     /// </summary>
     public static bool CanRoundEnd
     {
         get
         {
-            if (IsLocked || CarlModDeathmatch.IsEnabled || (KeepRoundOnOne && CountNonServerHubs() < 2) || !IsRoundStarted)
+            if (IsLocked || RoundSummaryPatch.DeathmatchBlocksRoundEnd || (KeepRoundOnOne && CountNonServerHubs() < 2) || !IsRoundStarted)
             {
                 return false;
             }

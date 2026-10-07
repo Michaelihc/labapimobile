@@ -87,7 +87,7 @@ Copy-Optional (Join-Path $labApiBin 'LabApi.pdb') (Join-Path $stage 'framework')
 Copy-Optional (Join-Path $labApiBin '0Harmony.pdb') (Join-Path $stage 'framework')
 
 # Text files with CRLF line endings and placeholders filled in.
-$gameVersions = '0.0.4'
+$gameVersions = '0.0.4 and 0.0.5'
 function Write-Text([string]$Source, [string]$Target) {
     $text = [IO.File]::ReadAllText($Source)
     $text = $text.Replace('{{VERSION}}', $Version).Replace('{{COMMIT}}', $commit).Replace('{{SOURCE}}', $SourceUrl).Replace('{{GAME_VERSIONS}}', $gameVersions)

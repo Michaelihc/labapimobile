@@ -10,6 +10,7 @@ using RemoteAdmin;
 using RemoteAdmin.Communication;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 using Utils;
 using VoiceChat;
@@ -23,7 +24,9 @@ namespace LabApi.Events.Patches.Admin;
 /// <remarks>
 /// With subscribers the fork info builder runs here with the events inserted as in official SL (the fork's text and
 /// clipboard format are kept); without subscribers the fork builder runs untouched. As in official SL the
-/// sensitive-data permission is checked after the Requesting events, so handlers can grant or revoke it.
+/// sensitive-data permission is checked after the Requesting events, so handlers can grant or revoke it. Carl Mod 0.0.5
+/// labels the player ID "Device ID" and sends it as the <c>DeviceId</c> clipboard entry (<c>CP_DEVICEID</c>); 0.0.4 labels
+/// it "User ID / Device ID" (<c>CP_USERID</c>). Applied only when the native body is one of the known Carl Mod bodies.
 /// </remarks>
 // Official: RemoteAdmin/Communication/RaPlayer.cs ReceiveData(CommandSender, string)
 [HarmonyPatch(typeof(RaPlayer), nameof(RaPlayer.ReceiveData), typeof(CommandSender), typeof(string))]
@@ -35,7 +38,39 @@ internal static class RaPlayerPatch
 
     private const string CopyUserId = "<color=green><link=CP_USERID></link></color>";
 
+    private const string CopyDeviceId = "<color=green><link=CP_DEVICEID></link></color>";
+
     private const ulong UserIdPermissions = 18007046uL;
+
+    // RaPlayer.ReceiveData of both Carl Mod 0.0.4 builds, and of 0.0.5 (device ID labels and clipboard entry).
+    private const string CarlMod004Body = "9210d010dad2996c";
+    private const string Version005Body = "21694c845e32a8eb";
+
+    private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(RaPlayer), nameof(RaPlayer.ReceiveData), [typeof(CommandSender), typeof(string)]);
+
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, CarlMod004Body, Version005Body, out Fingerprint);
+
+    private static readonly string? Fingerprint;
+
+    private static bool Version005 => Variant == BodyVariant.Version005;
+
+    // The ID line label, its copy link and the QR code text without an ID.
+    private static string IdLabel => Version005 ? "\nDevice ID: " : "\nUser ID / Device ID: ";
+
+    private static string CopyPlayerId => Version005 ? CopyDeviceId : CopyUserId;
+
+    private static string NoIdQr => Version005 ? "(no Device ID)" : "(no User ID)";
+
+    private static bool Prepare()
+    {
+        if (Variant != BodyVariant.Unknown)
+        {
+            return true;
+        }
+
+        PatchManager.Skip(typeof(RaPlayerPatch), NativeBody.UnknownBody(Target, Fingerprint, "RequestedCustomRaInfo, RequestingRaPlayersInfo / RequestedRaPlayersInfo and RequestingRaPlayerInfo / RequestedRaPlayerInfo are not raised."));
+        return false;
+    }
 
     private static bool Prefix(RaPlayer __instance, CommandSender sender, string data)
     {
@@ -134,7 +169,7 @@ internal static class RaPlayerPatch
         builder.Append("<color=white>Selecting multiple players:");
         builder.Append("\nPlayer ID: ").Append(CopyId);
         builder.Append("\nIP Address: ").Append(isShort ? "[REDACTED]" : CopyIp);
-        builder.Append("\nUser ID / Device ID: ").Append(hasUserIdPerms ? CopyUserId : "[REDACTED]");
+        builder.Append(IdLabel).Append(hasUserIdPerms ? CopyPlayerId : "[REDACTED]");
         builder.Append("</color>");
 
         StringBuilder idBuilder = StringBuilderPool.Shared.Rent();
@@ -213,7 +248,7 @@ internal static class RaPlayerPatch
             builder.Append("\nIP Address: [REDACTED]");
         }
 
-        builder.Append("\nUser ID / Device ID: ");
+        builder.Append(IdLabel);
         if (!hasUserIdPerms)
         {
             builder.Append("<color=#D4AF37>INSUFFICIENT PERMISSIONS</color>");
@@ -226,7 +261,7 @@ internal static class RaPlayerPatch
             }
             else
             {
-                builder.Append(characterClassManager.UserId).Append(' ').Append(CopyUserId);
+                builder.Append(characterClassManager.UserId).Append(' ').Append(CopyPlayerId);
             }
 
             userIdBuilder.Append(characterClassManager.UserId);
@@ -329,7 +364,7 @@ internal static class RaPlayerPatch
         SendClipboard(sender, RaClipboard.RaClipBoardType.Ip, ipBuilder);
         SendClipboard(sender, RaClipboard.RaClipBoardType.UserId, userIdBuilder);
         sender.RaReply(StringBuilderPool.Shared.ToStringReturn(builder), true, true, string.Empty);
-        RaPlayerQR.Send(sender, false, string.IsNullOrEmpty(characterClassManager.UserId) ? "(no User ID)" : characterClassManager.UserId);
+        RaPlayerQR.Send(sender, false, string.IsNullOrEmpty(characterClassManager.UserId) ? NoIdQr : characterClassManager.UserId);
     }
 
     private static void AppendMuteFlag(StringBuilder builder, VcMuteFlags flags, VcMuteFlags flag, string name)

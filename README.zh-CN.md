@@ -8,16 +8,16 @@
 
 ## 当前状态
 
-- 适用于 Windows 版 Carl Mod 专用服务端，游戏版本 0.0.4。同一个 `LabApi.dll` 支持并已测试两个 0.0.4 服务端版本：官方发布的服务端，以及带死斗（deathmatch）模块（`CarlModExtras.dll`）的版本。两者的差异见 [Carl Mod 服务端版本](docs/compatibility.md#carl-mod-server-builds)。
-- 尚未在 Carl Mod 0.0.5 上测试。LabAPI-Mobile 会识别它不认识的游戏代码：受影响的补丁不会应用（日志会逐个列出补丁及其失去的事件），游戏自身的代码照常运行；伤害和死亡事件仍会触发。
-- 包装类（wrapper）、事件参数和事件与官方 LabAPI 1.1.7 一致。每个事件都由一个 Harmony 补丁在与官方调用点等价的位置触发；在两个 0.0.4 版本上，187 个补丁类都在启动时应用，没有失败。
+- 适用于 Windows 版 Carl Mod 专用服务端，游戏版本 0.0.4 和 0.0.5。同一个 `LabApi.dll` 支持并已测试三个服务端版本：官方发布的 0.0.4 服务端、带死斗（deathmatch）模块（`CarlModExtras.dll`）的 0.0.4 版本，以及 0.0.5 服务端。各版本的差异见 [Carl Mod 服务端版本](docs/compatibility.md#carl-mod-server-builds)。
+- 其他版本尚未测试。LabAPI-Mobile 会识别它不认识的游戏代码：受影响的补丁不会应用（日志会逐个列出补丁及其失去的事件），游戏自身的代码照常运行；伤害和死亡事件仍会触发。
+- 包装类（wrapper）、事件参数和事件与官方 LabAPI 1.1.7 一致。每个事件都由一个 Harmony 补丁在与官方调用点等价的位置触发；在全部三个版本上，187 个补丁类都在启动时应用，没有失败。
 - [docs/compatibility.md](docs/compatibility.md) 列出了在 Carl Mod 上经过适配、行为近似或缺失的每个包装类、成员和事件（没有 SCP-3114，没有扬声器和文本玩具，使用 `KeycardPermissions` 等分支版本的类型……）。未列出的部分与官方 LabAPI 行为相同。
-- 事件已在 Android 模拟器中运行的原版 Carl Mod 0.0.4 安卓客户端上验证，由 [EventProbe](tools/EventProbe/README.md) 记录每次事件调用。模拟器中没有触屏控件的操作，由 EventProbe 的服务端替代命令触发。测试环境见 [docs/testing.md](docs/testing.md)。
+- 事件已在 Android 模拟器中运行的原版 Carl Mod 0.0.4 安卓客户端上验证，由 [EventProbe](tools/EventProbe/README.md) 记录每次事件调用。模拟器中没有触屏控件的操作，由 EventProbe 的服务端替代命令触发。测试环境见 [docs/testing.md](docs/testing.md)。0.0.5 服务端使用服务端假人（dummy）测试：0.0.4 客户端无法加入 0.0.5 服务端。
 - 帧率目前只在模拟器中测量过，尚未在真机上测量。
 
 ## 在服务器上安装
 
-要求：Windows 版 Carl Mod 专用服务端（已在游戏版本 0.0.4 上测试，包括官方发布的服务端和带死斗模块的版本），以及安装器所需的 .NET Framework 4.6.2 或更高版本（Windows 10、Windows 11 和 Windows Server 2016 及以上版本自带）。
+要求：Windows 版 Carl Mod 专用服务端（已在游戏版本 0.0.4 上测试，包括官方发布的服务端和带死斗模块的版本，以及 0.0.5），以及安装器所需的 .NET Framework 4.6.2 或更高版本（Windows 10、Windows 11 和 Windows Server 2016 及以上版本自带）。
 
 1. 停止服务器，把发布包 `LabApiMobile-<version>.zip` 解压到任意文件夹。
 2. 以服务器文件夹（包含 `Carl Mod.exe` 的文件夹）为参数运行安装器：
@@ -79,7 +79,7 @@ LabAPI-Mobile 的文件保存在 `<AppData>\SCP Secret Laboratory\LabAPI-Mobile\
 
 ## 从源码构建
 
-要求：.NET SDK（8 或更高版本）、Python 3，以及你自己的 Carl Mod 专用服务端 ZIP。本仓库不包含游戏文件；各项目针对解压到 `.runtime\server-original` 的服务端 `Carl Mod_Data\Managed` 程序集编译。两个 0.0.4 版本都可以用来编译：`LabApi.dll` 不引用 `CarlModExtras`，编译结果在两个版本上都能运行：
+要求：.NET SDK（8 或更高版本）、Python 3，以及你自己的 Carl Mod 专用服务端 ZIP。本仓库不包含游戏文件；各项目针对解压到 `.runtime\server-original` 的服务端 `Carl Mod_Data\Managed` 程序集编译。两个 0.0.4 版本都可以用来编译（源码使用 0.0.5 已改名的 0.0.4 成员名，因此 0.0.5 的程序集不能作为编译参考）：`LabApi.dll` 不引用 `CarlModExtras`，也不引用只存在于某一版本的成员，编译结果在全部三个版本上都能运行：
 
 ```powershell
 python tools/extract-server.py --zip <path to the server ZIP>   # 只需一次：解压到 .runtime\server-original

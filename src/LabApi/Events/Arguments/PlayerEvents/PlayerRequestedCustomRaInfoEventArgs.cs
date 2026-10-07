@@ -1,4 +1,5 @@
 ﻿using LabApi.Events.Arguments.Interfaces;
+using LabApi.Events.Patches;
 using LabApi.Features.Wrappers;
 using System;
 using System.Diagnostics.CodeAnalysis;
@@ -112,7 +113,7 @@ public class PlayerRequestedCustomRaInfoEventArgs : EventArgs, IPlayerEvent
     {
         0 => "CP_ID",
         1 => "CP_IP",
-        2 => "CP_USERID",
+        2 => CarlModBuild.IdClipboardLink,
         _ => throw new ArgumentOutOfRangeException(nameof(id), id, $"id must be between 0 and {MaxClipboardCount}"),
     };
 }

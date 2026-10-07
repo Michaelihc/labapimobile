@@ -107,6 +107,21 @@ public static class Decontamination
     }
 
     /// <summary>
+    /// Applies the offset again after something other than LabAPI restarted the timer by setting the synchronized round start
+    /// time (the Carl Mod 0.0.5 CarlModExtras module does at round start), which drops the part of the offset folded into it.
+    /// </summary>
+    /// <param name="controller">The decontamination controller.</param>
+    internal static void OnTimerRestarted(LightContainmentZoneDecontamination.DecontaminationController controller)
+    {
+        PendingOffset += _shiftedOffset;
+        _shiftedOffset = 0f;
+        if (PendingOffset != 0f)
+        {
+            ApplyPendingOffset(controller);
+        }
+    }
+
+    /// <summary>
     /// Resets the offset bookkeeping for a new round.
     /// </summary>
     internal static void ResetOffset()

@@ -21,8 +21,8 @@ using PlayerWrapper = LabApi.Features.Wrappers.Player;
 /// </summary>
 /// <remarks>
 /// Inserted after the call that picks the team in <see cref="RespawnManager.Update"/>, which keeps running:
-/// <see cref="RespawnTokensManager.DominatingTeam"/> in builds without the deathmatch module, <c>DmFun.ChooseTeam</c> in
-/// the build with it. A cancelled selection restarts the respawn cooldown (the fork has no idle state to retry from), like
+/// <see cref="RespawnTokensManager.DominatingTeam"/> in the official 0.0.4 distribution and in 0.0.5, <c>DmFun.ChooseTeam</c>
+/// in the 0.0.4 build with the deathmatch module. A cancelled selection restarts the respawn cooldown (the fork has no idle state to retry from), like
 /// a selection with no spectators.
 /// </remarks>
 [HarmonyPatch(typeof(RespawnManager), nameof(RespawnManager.Update))]
@@ -70,7 +70,7 @@ internal static class RespawnPatches
             return false;
         }
 
-        // The deathmatch build calls CarlModExtras.DmFun.ChooseTeam(), matched by name so LabAPI never references CarlModExtras.
+        // The 0.0.4 deathmatch build calls CarlModExtras.DmFun.ChooseTeam(), matched by name so LabAPI never references CarlModExtras.
         return method == dominatingTeam
             || (method.Name == "ChooseTeam" && method.ReturnType == typeof(SpawnableTeamType) && method.GetParameters().Length == 0 && method.DeclaringType?.FullName == DmFunTypeName);
     }

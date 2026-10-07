@@ -38,6 +38,13 @@ internal static class BanIssuingPatch
             return true;
         }
 
+        // Carl Mod 0.0.5 also rejects other ban types and invalid device IDs (BanType.UserId is its DeviceId).
+        if (CarlModBuild.HasDeviceIds
+            && (banType is not (BanHandler.BanType.UserId or BanHandler.BanType.IP) || (banType == BanHandler.BanType.UserId && !CarlModBuild.IsValidPlayerId(id))))
+        {
+            return true;
+        }
+
         BanDetails oldBan = BanHandler.GetBan(id, banType);
         if (oldBan == null)
         {

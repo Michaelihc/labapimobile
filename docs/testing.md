@@ -71,8 +71,11 @@ command also logs a harmless `Error in server console: Error while sending messa
 Port 7791 only; other ports belong to other test runs.
 
 The server copy is made from `-SourceDir` (default `.runtime\server-original`, the build with the deathmatch module).
-Patch changes are tested on both 0.0.4 builds; for the official server distribution pass
-`-SourceDir .runtime\server-official-004 -ServerDir <new copy>` (see AGENTS.md for where it comes from). With
+Patch changes are tested on all three server builds; for the official 0.0.4 server distribution pass
+`-SourceDir .runtime\server-official-004 -ServerDir <new copy>` (see AGENTS.md for where it comes from), for Carl Mod
+0.0.5 `-SourceDir .runtime\server-original-005 -ServerDir <new copy>` (`python tools/extract-server.py --build 0.0.5`
+extracts it). The 0.0.4 client cannot join a 0.0.5 server (the version check refuses it), so 0.0.5 is tested with
+server-side dummy players. With
 `-CommandSession`, LabAPI's own log lines do not reach the Unity log; a test plugin can read
 `PatchManager.AppliedPatchCount`, `FailedPatches` and `SkippedPatches` instead.
 

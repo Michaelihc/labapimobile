@@ -3,19 +3,26 @@ using PlayerStatsSystem;
 using RemoteAdmin;
 using System;
 using System.Reflection;
+using System.Text;
 
 namespace LabApi.Events.Patches;
 
 /// <summary>
-/// Optional access to the deathmatch module that one Carl Mod 0.0.4 server build ships: <c>CarlModExtras.dll</c>
-/// (<c>CarlModExtras.DmFun</c>) plus deathmatch members in Assembly-CSharp such as <c>PlayerStats.DmCleanup</c>. The
-/// official Carl Mod server distribution has no such module.
+/// Optional access to the CarlModExtras module (<c>CarlModExtras.DmFun</c>) and the deathmatch members some Carl Mod builds
+/// add to the game assembly.
 /// </summary>
 /// <remarks>
-/// LabAPI-Mobile does not reference CarlModExtras at compile time. Each member is looked up by reflection once and bound
-/// to a delegate, so no LabAPI method needs CarlModExtras (or a deathmatch member) to be JIT-compiled, and a build without
-/// the module only sees <see langword="false"/> / no-op results. Patches choose between the deathmatch and the standard
-/// copy of a native body by its IL fingerprint (<see cref="NativeBody"/>), not by these delegates.
+/// <list type="bullet">
+/// <item>The official 0.0.4 server distribution has no CarlModExtras.</item>
+/// <item>The 0.0.4 build with the deathmatch module has CarlModExtras and deathmatch members in Assembly-CSharp
+/// (<c>PlayerStats.DmCleanup</c>, <c>RespawnManager.DmDirectRespawn</c>...), and the game calls the module from many places.</item>
+/// <item>Carl Mod 0.0.5 has CarlModExtras but no deathmatch members in Assembly-CSharp; the game calls only the module's Remote
+/// Admin, client console and tick hooks.</item>
+/// </list>
+/// LabAPI-Mobile does not reference CarlModExtras at compile time. Each member is looked up by reflection once, on its own, and
+/// bound to a delegate, so no LabAPI method needs CarlModExtras (or a build-specific member) to be JIT-compiled and a build
+/// without a member only sees <see langword="false"/> / no-op results. Whether the game actually calls a hook is decided by the
+/// native body that calls it (<see cref="NativeBody"/>), not by these delegates.
 /// </remarks>
 internal static class CarlModDeathmatch
 {
@@ -31,6 +38,7 @@ internal static class CarlModDeathmatch
     static CarlModDeathmatch()
     {
         Type? dmFun = FindDmFun();
+        ModuleType = dmFun;
         if (dmFun != null)
         {
             EnabledGetter = Bind<Func<bool>>(dmFun, "DmEnabledBool");
@@ -44,13 +52,24 @@ internal static class CarlModDeathmatch
     }
 
     /// <summary>
-    /// Gets whether the server has the deathmatch module: <c>CarlModExtras.DmFun</c> and the deathmatch members of the
-    /// game assembly.
+    /// Gets <c>CarlModExtras.DmFun</c>, or <see langword="null"/> on builds without the CarlModExtras module. Only for
+    /// reflection: patches resolve module methods on it by name.
     /// </summary>
-    internal static bool IsPresent => EnabledGetter != null && CleanupHandler != null;
+    internal static Type? ModuleType { get; }
 
     /// <summary>
-    /// Gets whether the deathmatch module is present and its <c>deathmatch</c> config is enabled.
+    /// Gets whether the server has the CarlModExtras module (<c>CarlModExtras.DmFun</c>).
+    /// </summary>
+    internal static bool HasModule => ModuleType != null;
+
+    /// <summary>
+    /// Gets whether the game assembly has the 0.0.4 deathmatch build's members (<c>PlayerStats.DmCleanup</c>).
+    /// </summary>
+    internal static bool HasGameMembers => CleanupHandler != null;
+
+    /// <summary>
+    /// Gets whether the CarlModExtras module is present and its <c>deathmatch</c> config is enabled. What that config changes
+    /// depends on the build: see <see cref="Rounds.RoundSummaryPatch.DeathmatchBlocksRoundEnd"/>.
     /// </summary>
     internal static bool IsEnabled => EnabledGetter != null && EnabledGetter();
 
@@ -88,24 +107,29 @@ internal static class CarlModDeathmatch
     internal static void OnLoadout(ReferenceHub target) => LoadoutHandler?.Invoke(target);
 
     /// <summary>
-    /// Runs <c>PlayerStats.DmCleanup</c>, which the deathmatch build calls at the end of <c>KillPlayer</c>.
+    /// Runs <c>PlayerStats.DmCleanup</c>, which the 0.0.4 deathmatch build calls at the end of <c>KillPlayer</c>.
     /// </summary>
     internal static void Cleanup() => CleanupHandler?.Invoke();
 
     /// <summary>
-    /// Describes the module state for the startup log.
+    /// Describes the server build for the startup log.
     /// </summary>
     /// <returns>A short description.</returns>
     internal static string Describe()
     {
-        if (IsPresent)
+        StringBuilder text = new("Carl Mod ");
+        text.Append(GameCore.Version.VersionString);
+        if (!HasModule)
         {
-            return "Carl Mod deathmatch module found (CarlModExtras)";
+            text.Append(", no CarlModExtras module");
+        }
+        else
+        {
+            text.Append(", CarlModExtras module");
         }
 
-        return EnabledGetter != null
-            ? "CarlModExtras found, but the game assembly has no deathmatch members; treated as a build without the deathmatch module"
-            : "no Carl Mod deathmatch module (CarlModExtras)";
+        text.Append(HasGameMembers ? ", deathmatch members in the game assembly" : ", no deathmatch members in the game assembly");
+        return text.ToString();
     }
 
     private static Type? FindDmFun()
@@ -116,7 +140,7 @@ internal static class CarlModDeathmatch
         }
         catch (Exception)
         {
-            // CarlModExtras.dll is missing or cannot be loaded: a build without the deathmatch module.
+            // CarlModExtras.dll is missing or cannot be loaded: a build without the module.
             return null;
         }
     }

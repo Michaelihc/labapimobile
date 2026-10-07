@@ -11,27 +11,29 @@ only use content that client already knows.
 
 ## Status
 
-- Targets the Carl Mod dedicated server for Windows, game version 0.0.4. Both 0.0.4 server builds are supported and
-  tested with the same `LabApi.dll`: the official server distribution and the build with the deathmatch module
-  (`CarlModExtras.dll`). See [Carl Mod server builds](docs/compatibility.md#carl-mod-server-builds) for what differs.
-- Carl Mod 0.0.5 is not tested. LabAPI-Mobile detects game code it does not know: the affected patches are not applied
+- Targets the Carl Mod dedicated server for Windows, game versions 0.0.4 and 0.0.5. Three server builds are supported
+  and tested with the same `LabApi.dll`: the official 0.0.4 server distribution, the 0.0.4 build with the deathmatch
+  module (`CarlModExtras.dll`) and the 0.0.5 server. See
+  [Carl Mod server builds](docs/compatibility.md#carl-mod-server-builds) for what differs.
+- Other builds are not tested. LabAPI-Mobile detects game code it does not know: the affected patches are not applied
   (the log names each one and the events it loses) and the game's own code keeps running; damage and death events are
   still raised.
 - Wrappers, event arguments and events follow official LabAPI 1.1.7. Each event is raised by a Harmony patch at the
-  point equivalent to the official call site; on both 0.0.4 builds 187 patch classes apply at startup with no failures.
+  point equivalent to the official call site; on all three builds 187 patch classes apply at startup with no failures.
 - [docs/compatibility.md](docs/compatibility.md) lists every wrapper, member and event that is adapted, approximated
   or absent on Carl Mod (no SCP-3114, no speaker or text toys, fork types such as `KeycardPermissions`, ...). Anything
   not listed there works as in official LabAPI.
 - Events are verified with the stock Carl Mod 0.0.4 Android client running in an Android emulator, with
   [EventProbe](tools/EventProbe/README.md) logging every event call. Actions that have no touch control in the
   emulator are driven by EventProbe's server-side stand-ins. [docs/testing.md](docs/testing.md) describes the setup.
+  The 0.0.5 server is tested with server-side dummy players: the 0.0.4 client cannot join it.
 - Frame rates have been measured in the emulator only, not on physical phones.
 
 ## Install on a server
 
 Requirements: the Carl Mod dedicated server for Windows (tested with game version 0.0.4, both the official server
-distribution and the build with the deathmatch module) and .NET Framework 4.6.2 or later for the installer, which is
-part of Windows 10, Windows 11 and Windows Server 2016 and later.
+distribution and the build with the deathmatch module, and with 0.0.5) and .NET Framework 4.6.2 or later for the
+installer, which is part of Windows 10, Windows 11 and Windows Server 2016 and later.
 
 1. Stop the server and extract the release archive `LabApiMobile-<version>.zip` to any folder.
 2. Run the installer with the server folder (the one that contains `Carl Mod.exe`):
@@ -116,8 +118,9 @@ Phones are the bottleneck: low-end devices render every networked object and rec
 
 Requirements: the .NET SDK (8 or later), Python 3 and your own copy of the Carl Mod dedicated server ZIP. The game
 files are not in this repository; the projects compile against the server's `Carl Mod_Data\Managed` assemblies,
-extracted to `.runtime\server-original`. Either 0.0.4 build works: `LabApi.dll` does not reference `CarlModExtras`,
-and the result runs on both builds.
+extracted to `.runtime\server-original`. Either 0.0.4 build works (the source uses 0.0.4 member names that 0.0.5
+renamed, so 0.0.5 assemblies are not a build reference): `LabApi.dll` does not reference `CarlModExtras` or members only
+one build has, and the result runs on all three builds.
 
 ```powershell
 python tools/extract-server.py --zip <path to the server ZIP>   # once: extracts to .runtime\server-original

@@ -21,10 +21,10 @@ internal static class Program
     private static readonly string[] FrameworkFiles = ["LabApi.dll", "0Harmony.dll"];
 
     /// <summary>
-    /// Game versions (GameCore.Version.VersionString) this release was tested on. Two 0.0.4 server builds exist and both
-    /// were tested: the official server distribution and a build with the deathmatch module (CarlModExtras).
+    /// Game versions (GameCore.Version.VersionString) this release was tested on: both 0.0.4 server builds (the official
+    /// server distribution and the build with the deathmatch module) and 0.0.5.
     /// </summary>
-    private static readonly string[] TestedVersions = ["0.0.4"];
+    private static readonly string[] TestedVersions = ["0.0.4", "0.0.5"];
 
     private const int ExitOk = 0;
     private const int ExitError = 1;
@@ -153,7 +153,7 @@ internal static class Program
         GameInfo info = ReferenceEquals(original, current) ? currentInfo : Inspect(original, managed);
         Console.WriteLine($"Server:       {serverDir}");
         Console.WriteLine($"Game version: {info.VersionText}");
-        Console.WriteLine($"Game build:   {(info.HasDeathmatch ? "with the deathmatch module (CarlModExtras)" : "without the deathmatch module")}");
+        Console.WriteLine($"Game build:   {DescribeBuild(info)}");
         if (info.Problem != null)
         {
             throw new InstallerException(
@@ -287,8 +287,11 @@ internal static class Program
         public string VersionText = "unknown (GameCore.Version not found)";
         public bool IsPatched;
 
-        /// <summary>Whether the game assembly has the deathmatch module's members (PlayerStats.DmCleanup).</summary>
+        /// <summary>Whether the game assembly has the 0.0.4 deathmatch module's members (PlayerStats.DmCleanup).</summary>
         public bool HasDeathmatch;
+
+        /// <summary>Whether the game assembly references the CarlModExtras module.</summary>
+        public bool HasExtras;
 
         /// <summary>Why the image cannot be patched; null when it is a recognised Carl Mod build.</summary>
         public string? Problem;
@@ -303,6 +306,7 @@ internal static class Program
 
         ReadVersion(module, info);
         info.HasDeathmatch = module.GetType("PlayerStatsSystem.PlayerStats")?.Methods.Any(m => m.Name == "DmCleanup") == true;
+        info.HasExtras = module.AssemblyReferences.Any(r => r.Name == "CarlModExtras");
 
         MethodDefinition? awake = FindAwake(module);
         if (awake == null)
@@ -323,6 +327,16 @@ internal static class Program
             info.Problem = "GameCore.Version not found";
 
         return info;
+    }
+
+    private static string DescribeBuild(GameInfo info)
+    {
+        if (info.HasDeathmatch)
+            return "with the deathmatch module (CarlModExtras and deathmatch members in Assembly-CSharp)";
+
+        return info.HasExtras
+            ? "with the CarlModExtras module, no deathmatch members in Assembly-CSharp"
+            : "without CarlModExtras (official server distribution)";
     }
 
     private static MethodDefinition? FindAwake(ModuleDefinition module) =>

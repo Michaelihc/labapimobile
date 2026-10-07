@@ -10,9 +10,9 @@ This archive contains the framework only. Plugins are installed separately
 
 Requirements
 ------------
-- The Carl Mod dedicated server for Windows (tested with game version
-  {{GAME_VERSIONS}}: both the official server distribution and the build
-  with the deathmatch module, CarlModExtras.dll).
+- The Carl Mod dedicated server for Windows, tested with game versions
+  {{GAME_VERSIONS}}: for 0.0.4 both the official server distribution and the
+  build with the deathmatch module (CarlModExtras.dll), and the 0.0.5 server.
 - .NET Framework 4.6.2 or later for the installer. It is part of Windows 10,
   Windows 11 and Windows Server 2016 and later.
 

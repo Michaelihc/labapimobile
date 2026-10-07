@@ -22,29 +22,40 @@ using RoundWrapper = LabApi.Features.Wrappers.Round;
 /// </summary>
 /// <remarks>
 /// The fork's MEC coroutine is replaced with an equivalent one that raises the events at the official points. It keeps
-/// the fork rules: a check every 2.5 s after a 15 s grace period, re-evaluated only after the kill count changed,
-/// and the 30 minute overtime end. Differences: a vetoed or cancelled ending is re-evaluated on the next check even
+/// the rules of the build's own coroutine: a check every 2.5 s after a 15 s grace period; on Carl Mod 0.0.4 the grace
+/// period restarts while no round is in progress, a check runs only after the kill count changed, and a round ends after
+/// 30 minutes (overtime); on 0.0.5 the grace period counts from the start of the coroutine (the lobby), every check is
+/// evaluated and there is no overtime end. Differences: a vetoed or cancelled ending is re-evaluated on the next check even
 /// without a new kill (as the official loop does), <see cref="RoundSummary.ForceEnd"/> (used by
-/// <see cref="RoundWrapper.End"/>) ends the round through the same path instead of stalling it, and on the build with the
-/// deathmatch module, with its <c>deathmatch</c> config enabled, the round is checked every 2.5 s with <c>CanEnd = false</c>
+/// <see cref="RoundWrapper.End"/>) ends the round through the same path instead of stalling it, and on the 0.0.4 build with
+/// the deathmatch module, with its <c>deathmatch</c> config enabled, the round is checked every 2.5 s with <c>CanEnd = false</c>
 /// while <see cref="ServerEvents.RoundEndingConditionsCheck"/> has subscribers, so a plugin can end a deathmatch round.
 /// The iterator stub is small enough to be inlined, so its call in <c>RoundSummary.Start</c> is redirected instead.
-/// Applied only when the native coroutine is one of the known Carl Mod 0.0.4 bodies; otherwise the game's coroutine runs.
+/// Applied only when the native coroutine is one of the known Carl Mod bodies; otherwise the game's coroutine runs.
 /// </remarks>
 [HarmonyPatch(typeof(RoundSummary), nameof(RoundSummary.Start))]
 internal static class RoundSummaryPatch
 {
     private const string DeathmatchKey = "deathmatch";
 
-    // The coroutine's MoveNext without and with the deathmatch build's "deathmatch" config check.
-    private const string StandardBody = "43cfe2f19da7b5bf";
-    private const string DeathmatchBody = "a48628bdd3f9e23a";
+    // The coroutine's MoveNext without and with the 0.0.4 deathmatch build's "deathmatch" config check, and the 0.0.5 body
+    // (no kill-count gate, no overtime end, no grace period restart).
+    private const string StandardBody = "27f62fd9e27b3dc7";
+    private const string DeathmatchBody = "2edbce31b54627f4";
+    private const string Version005Body = "289610b4a4ad274a";
 
     private static readonly MethodInfo? Target = FindCoroutineBody();
 
-    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, Version005Body, out Fingerprint);
 
     private static readonly string? Fingerprint;
+
+    /// <summary>
+    /// Gets whether the round cannot end naturally because of the deathmatch mode: the native round-end check is the 0.0.4
+    /// deathmatch build's and its <c>deathmatch</c> config is enabled. Carl Mod 0.0.5 has a <c>deathmatch</c> config too, but
+    /// its round-end check ignores it.
+    /// </summary>
+    internal static bool DeathmatchBlocksRoundEnd => Variant == BodyVariant.Deathmatch && CarlModDeathmatch.IsEnabled;
 
     private static bool Prepare()
     {
@@ -90,7 +101,10 @@ internal static class RoundSummaryPatch
     private static IEnumerator<float> ProcessServerSideCode(RoundSummary summary)
     {
         float time = Time.unscaledTime;
-        RoundSummary.__lastCheckKills = 0;
+
+        // The 0.0.4 coroutines keep this in RoundSummary.__lastCheckKills, which nothing else reads (0.0.5 has no such field).
+        int lastCheckKills = 0;
+        bool version005 = Variant == BodyVariant.Version005;
         bool ended = false;
 
         while (summary != null)
@@ -111,7 +125,11 @@ internal static class RoundSummaryPatch
 
                 if (!RoundSummary.RoundInProgress())
                 {
-                    time = Time.unscaledTime;
+                    if (!version005)
+                    {
+                        time = Time.unscaledTime;
+                    }
+
                     continue;
                 }
 
@@ -120,14 +138,14 @@ internal static class RoundSummaryPatch
                     continue;
                 }
 
-                if (!deathmatch)
+                if (!deathmatch && !version005)
                 {
-                    if (RoundSummary.Kills == RoundSummary.__lastCheckKills)
+                    if (RoundSummary.Kills == lastCheckKills)
                     {
                         continue;
                     }
 
-                    RoundSummary.__lastCheckKills = RoundSummary.Kills;
+                    lastCheckKills = RoundSummary.Kills;
                 }
             }
 
@@ -179,7 +197,7 @@ internal static class RoundSummaryPatch
             RoundSummary.SurvivingSCPs = newList.scps_except_zombies;
             float classDPercentage = summary.classlistStart.class_ds != 0 ? (float)escapedClassD / summary.classlistStart.class_ds : 0f;
             float scientistPercentage = summary.classlistStart.scientists == 0 ? 1f : (float)escapedScientists / summary.classlistStart.scientists;
-            bool overtime = RoundStart.RoundLength.TotalSeconds >= 1800.0;
+            bool overtime = !version005 && RoundStart.RoundLength.TotalSeconds >= 1800.0;
 
             bool canEnd;
             if (newList.class_ds <= 0 && facilityForces <= 0)
@@ -224,7 +242,7 @@ internal static class RoundSummaryPatch
                 if (canEnd && !check.CanEnd)
                 {
                     // Vetoed: check again on the next cycle, as the official loop does.
-                    RoundSummary.__lastCheckKills = -1;
+                    lastCheckKills = -1;
                 }
 
                 canEnd = check.CanEnd;
@@ -269,7 +287,7 @@ internal static class RoundSummaryPatch
                 if (!ending.IsAllowed)
                 {
                     summary._roundEnded = false;
-                    RoundSummary.__lastCheckKills = -1;
+                    lastCheckKills = -1;
                     continue;
                 }
 
@@ -305,7 +323,10 @@ internal static class RoundSummaryPatch
 
             yield return Timing.WaitForSeconds(1f);
             RoundRestart.InitiateRoundRestart();
-            time = Time.unscaledTime;
+            if (!version005)
+            {
+                time = Time.unscaledTime;
+            }
         }
     }
 }

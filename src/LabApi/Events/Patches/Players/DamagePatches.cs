@@ -20,11 +20,11 @@ namespace LabApi.Events.Patches.Players;
 /// </summary>
 /// <remarks>
 /// <list type="bullet">
-/// <item><c>DealDamage</c> is the Carl Mod 0.0.4 body (the same in every known build): <see cref="PlayerDamagePatch"/>
+/// <item><c>DealDamage</c> is the known Carl Mod body (the same in both 0.0.4 builds and 0.0.5): <see cref="PlayerDamagePatch"/>
 /// replaces it with that body plus the events, at the official points.</item>
-/// <item><c>KillPlayer</c> is clean (the official server distribution): the replacement calls the native method, and
+/// <item><c>KillPlayer</c> is clean (the official 0.0.4 distribution and 0.0.5): the replacement calls the native method, and
 /// <c>DealDamage</c> runs untouched while no damage event has subscribers.</item>
-/// <item><c>KillPlayer</c> cannot be read (the deathmatch build: its <c>brfalse.s</c> at IL_00a9 jumps into the middle of
+/// <item><c>KillPlayer</c> cannot be read (the 0.0.4 deathmatch build: its <c>brfalse.s</c> at IL_00a9 jumps into the middle of
 /// the call at IL_002d when the player is not a spectator after <c>ServerSetRole(Spectator, Died)</c>, which a plugin can
 /// cause from ChangingRole): <c>DealDamage</c> is always replaced and runs <see cref="PlayerDamagePatch.CorrectedKillPlayer"/>.
 /// Harmony cannot patch that <c>KillPlayer</c>, and <c>DealDamage</c> is its only caller.</item>
@@ -34,10 +34,10 @@ namespace LabApi.Events.Patches.Players;
 /// </remarks>
 internal static class DamagePatchMode
 {
-    // PlayerStats.DealDamage of the Carl Mod 0.0.4 builds (official distribution and deathmatch build).
+    // PlayerStats.DealDamage of the Carl Mod builds (both 0.0.4 builds and 0.0.5).
     private const string KnownDealDamage = "105e09d96882658b";
 
-    // PlayerStats.KillPlayer of the deathmatch build, raw IL bytes (Harmony cannot read this body).
+    // PlayerStats.KillPlayer of the 0.0.4 deathmatch build, raw IL bytes (Harmony cannot read this body).
     private const string DeathmatchKillPlayerRaw = "dd877e4af482a1a5";
 
     static DamagePatchMode()
@@ -112,7 +112,7 @@ internal static class PlayerDamagePatch
             return true;
         }
 
-        PatchManager.Skip(typeof(PlayerDamagePatch), $"{NativeBody.Describe(DamagePatchMode.DealDamageMethod)} differs from the Carl Mod 0.0.4 builds "
+        PatchManager.Skip(typeof(PlayerDamagePatch), $"{NativeBody.Describe(DamagePatchMode.DealDamageMethod)} differs from the Carl Mod builds LabAPI-Mobile knows (0.0.4, 0.0.5) "
             + $"(IL {DamagePatchMode.DealDamageFingerprint ?? "unreadable"}); the game's damage code runs unchanged and Hurting / Hurt / Dying / Death "
             + "are raised around it (Dying after the game's own death callbacks).");
         return false;

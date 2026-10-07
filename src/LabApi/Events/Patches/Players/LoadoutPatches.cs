@@ -19,8 +19,8 @@ namespace LabApi.Events.Patches.Players;
 /// </summary>
 /// <remarks>
 /// Runs the original untouched unless a loadout event has subscribers; otherwise replays the Carl Mod body with the events,
-/// including the deathmatch module's loadout hook on the build that has it. Applied only when the native body is one of
-/// the known Carl Mod 0.0.4 bodies.
+/// including the deathmatch module's loadout hook on the 0.0.4 build that calls it (Carl Mod 0.0.5 has the official
+/// distribution's body without it). Applied only when the native body is one of the known Carl Mod bodies.
 /// </remarks>
 // Official: InventorySystem/InventoryItemProvider.cs ServerGrantLoadout
 [HarmonyPatch(typeof(InventoryItemProvider), nameof(InventoryItemProvider.ServerGrantLoadout))]
@@ -32,7 +32,7 @@ internal static class PlayerLoadoutPatch
 
     private static readonly MethodInfo? Target = AccessTools.DeclaredMethod(typeof(InventoryItemProvider), nameof(InventoryItemProvider.ServerGrantLoadout));
 
-    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, out Fingerprint);
+    private static readonly BodyVariant Variant = NativeBody.Identify(Target, StandardBody, DeathmatchBody, null, out Fingerprint);
 
     private static readonly string? Fingerprint;
 

@@ -54,7 +54,9 @@ internal static class KickingPatch
 /// </summary>
 /// <remarks>
 /// Banning fires only once the fork's own preconditions pass (valid target, non-zero duration, no staff bypass,
-/// valid device user ID), matching the point after the staff-bypass check where official SL raises it.
+/// valid device user ID or device ID), matching the point after the staff-bypass check where official SL raises it.
+/// Banned is raised only when the game reports the ban as issued; on 0.0.5 that includes the IP ban, and a failed IP ban
+/// removes the ID ban again.
 /// </remarks>
 // Official: BanPlayer.cs BanUser(Footprint, ICommandSender, string, long)
 [HarmonyPatch(typeof(BanPlayer), nameof(BanPlayer.BanUser), typeof(ReferenceHub), typeof(ICommandSender), typeof(string), typeof(long))]
@@ -74,8 +76,9 @@ internal static class BanningPatch
             return true;
         }
 
+        // CharacterClassManager.DeviceId on 0.0.5 returns this ID too.
         string userId = target.characterClassManager.UserId;
-        if (!DeviceIdentity.IsValidUserId(userId))
+        if (!CarlModBuild.IsValidPlayerId(userId))
         {
             return true;
         }

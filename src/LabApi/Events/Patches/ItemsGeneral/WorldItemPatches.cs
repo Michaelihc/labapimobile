@@ -126,7 +126,8 @@ internal static class ProjectileExplodingPatch
 /// Raises ProjectileExploding for SCP-2176 before it shatters.
 /// </summary>
 /// <remarks>
-/// Builds whose SCP-2176 has no own <c>ServerFuseEnd</c> (or no <c>_hasTriggered</c> flag) skip this patch; SCP-2176 then
+/// Builds whose SCP-2176 has no own <c>ServerFuseEnd</c> (Carl Mod 0.0.5, where the shared fuse end calls its <c>ServerDetonate</c>,
+/// or a build without the <c>_hasTriggered</c> flag) skip this patch; SCP-2176 then
 /// raises ProjectileExploding from <see cref="ProjectileExplodingPatch"/> like the other grenades. The target is resolved in
 /// <see cref="TargetMethod"/> because it may be absent.
 /// </remarks>
@@ -152,7 +153,7 @@ internal static class Scp2176ExplodingPatch
     {
         if (Target == null)
         {
-            Logger.Info("[PATCHES] SCP-2176 has no own ServerFuseEnd in this build; its ProjectileExploding event is raised from the shared grenade fuse end.");
+            Logger.Info("[PATCHES] SCP-2176 has no own ServerFuseEnd in this build (Carl Mod 0.0.5 shatters it from the shared grenade fuse end); its ProjectileExploding event is raised there.");
         }
 
         return Target != null;
