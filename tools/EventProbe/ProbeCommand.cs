@@ -50,6 +50,27 @@ public sealed class ProbeCommand : ICommand
         string verb = arguments.Count > 0 ? arguments.At(0).ToLowerInvariant() : string.Empty;
         switch (verb)
         {
+            case "cassiedummy":
+            {
+                ReferenceHub dummy = ServerDummy.Spawn(PlayerRoles.RoleTypeId.ClassD, Vector3.zero, Quaternion.identity);
+                try
+                {
+                    Player dummyPlayer = Player.Get(dummy);
+                    Mirror.NetworkServer.SetClientReady(dummy.connectionToClient);
+                    bool emptyRejected = !Announcer.MessageTo(dummyPlayer, "");
+                    dummy.connectionToClient.isReady = false;
+                    bool unreadyRejected = !Announcer.MessageTo(dummyPlayer, "attention", glitchScale: 0f);
+                    dummy.connectionToClient.isReady = true;
+                    bool sent = Announcer.MessageTo(dummyPlayer, "attention all personnel", glitchScale: 0f);
+                    response = $"Private CASSIE dummy: sent={sent}, emptyRejected={emptyRejected}, unreadyRejected={unreadyRejected}";
+                    LabApi.Features.Console.Logger.Raw("[PROBE] " + response, ConsoleColor.Cyan);
+                    return sent && emptyRejected && unreadyRejected;
+                }
+                finally
+                {
+                    dummy.connectionToClient.Disconnect();
+                }
+            }
             case "cassie" when arguments.Count > 2 && TryGetPlayer(arguments.At(1), out Player? recipient):
             {
                 string words = string.Join(" ", arguments.Array!, arguments.Offset + 2, arguments.Count - 2);

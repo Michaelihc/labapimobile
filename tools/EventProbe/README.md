@@ -67,6 +67,7 @@ copies all console lines (including LabAPI loader and handler errors raised afte
 | `probe whoami` | Print `Player.Get(sender)` for the command sender. |
 | `probe patches` | LabAPI patch summary: applied and failed patch classes, and any patched generic method. |
 | `probe cassie <playerId> <words...>` | Sends a private CASSIE announcement without glitches through `Announcer.MessageTo`. Logs whether it was sent. |
+| `probe cassiedummy` | Checks a private send to a server dummy and rejection of empty messages and unready connections, then removes the dummy. Does not establish client playback. |
 
 The server-side stand-ins (`killby`, `cuff`, `lunge`, `atlas`) run the same server code a client message would reach,
 so the LabAPI patches on that path are exercised with real clients connected; they do not test the client input.
