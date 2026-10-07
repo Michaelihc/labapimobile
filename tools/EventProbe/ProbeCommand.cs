@@ -52,6 +52,12 @@ public sealed class ProbeCommand : ICommand
         {
             case "cassiedummy":
             {
+                if (GameCore.Version.VersionString != "0.0.5")
+                {
+                    response = "This probe requires the 0.0.5 ServerDummy fixture; use probe cassie with a real client on 0.0.4.";
+                    return false;
+                }
+
                 ReferenceHub dummy = ServerDummy.Spawn(PlayerRoles.RoleTypeId.ClassD, Vector3.zero, Quaternion.identity);
                 try
                 {
