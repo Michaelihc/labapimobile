@@ -1,4 +1,5 @@
 using LabApi.Events.Patches.Rounds;
+using Mirror;
 using PlayerRoles;
 using PlayerStatsSystem;
 using Respawning;
@@ -148,6 +149,58 @@ public static class Announcer
         {
             CassieAnnouncementPatch.PendingCustomSubtitles = null;
         }
+    }
+
+    /// <summary>
+    /// Queues an announcement for one player using the stock Carl Mod client RPC.
+    /// This port-specific method does not raise the global CASSIE announcement events.
+    /// Call on the Unity main thread.
+    /// </summary>
+    /// <returns>Whether the announcement was sent to a ready connection observing the announcer.</returns>
+    public static bool MessageTo(Player player, string message, string customSubtitles = "", bool playBackground = true, float glitchScale = 1f)
+    {
+        if (player == null)
+        {
+            throw new ArgumentNullException(nameof(player));
+        }
+
+        NetworkConnectionToClient connection = player.ConnectionToClient;
+        if (!NetworkServer.active || connection == null || !connection.isReady || string.IsNullOrEmpty(message))
+        {
+            return false;
+        }
+
+        foreach (RespawnEffectsController controller in RespawnEffectsController.AllControllers)
+        {
+            if (controller == null || controller.netId == 0 || !controller.netIdentity.observers.ContainsKey(connection.connectionId))
+            {
+                continue;
+            }
+
+            message = Glitchify(message, glitchScale);
+            bool translated = !string.IsNullOrEmpty(customSubtitles);
+            if (translated)
+            {
+                message = CassieAnnouncementPatch.ComposeTranslated(message, customSubtitles);
+            }
+
+            using NetworkWriterPooled writer = NetworkWriterPool.Get();
+            writer.WriteString(message);
+            writer.WriteBool(false);
+            writer.WriteBool(playBackground);
+            writer.WriteBool(translated);
+            // RespawnEffectsController.RpcCassieAnnouncement: the SL 13.x wire signature on all Carl Mod builds.
+            connection.Send(new RpcMessage
+            {
+                netId = controller.netId,
+                componentIndex = controller.ComponentIndex,
+                functionHash = 39085,
+                payload = writer.ToArraySegment(),
+            });
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
